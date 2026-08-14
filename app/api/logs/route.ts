@@ -33,6 +33,8 @@ export async function GET(request: Request) {
              l.top_similarity,
              l.conversation_id,
              l.user_id,
+             l.user_name,
+             l.user_email,
              l.created_at,
              f.rating as feedback_rating,
              coalesce(c.citations, '[]'::json) as citations
@@ -67,7 +69,10 @@ export async function GET(request: Request) {
         citationCount: Number(row.citation_count ?? 0),
         topSimilarity: row.top_similarity === null ? null : Number(row.top_similarity),
         conversationId: row.conversation_id ? String(row.conversation_id) : null,
-        userKey: row.user_id ? String(row.user_id).slice(0, 6) : null,
+        userKey: row.user_name
+          ? String(row.user_name)
+          : row.user_id ? `익명 ${String(row.user_id).slice(0, 6)}` : null,
+        userEmail: row.user_email ? String(row.user_email) : null,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
         feedback: row.feedback_rating === null ? null : Number(row.feedback_rating) > 0 ? "positive" : "negative",
         citations: Array.isArray(row.citations) ? row.citations : [],

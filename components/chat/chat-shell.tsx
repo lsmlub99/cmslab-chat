@@ -1,6 +1,6 @@
 "use client";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, MessageSquarePlus, Settings2, Square, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Check, Copy, ExternalLink, LogOut, MessageSquarePlus, Settings2, Square, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import type { Citation, ConversationSummary, ConversationTurn } from "@/lib/types";
 import MessageText from "@/components/chat/message-text";
 
@@ -15,7 +15,13 @@ type Message = {
 };
 
 type Settings = { bot_name: string; team_name: string; welcome_message: string };
-type BootstrapData = { settings: Settings; conversations: ConversationSummary[] };
+type SessionUser = { name: string; email: string; picture?: string };
+type BootstrapData = {
+  settings: Settings;
+  user: SessionUser | null;
+  conversations: ConversationSummary[];
+  suggestions: string[];
+};
 
 /** 마지막으로 보던 대화를 기억해 두었다가 새로고침 후 복원합니다. */
 const LAST_CONVERSATION_KEY = "answerbot:last-conversation";
@@ -28,7 +34,16 @@ export default function ChatShell() {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Settings>();
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  // 팀에서 실제로 많이 물어보고 답변에 성공한 질문으로 채워집니다.
+  // 지어낸 예시보다 실제로 답이 나오는 질문을 보여 주는 편이 낫습니다.
+  const [suggestions, setSuggestions] = useState<string[]>([
+    "연차 휴가는 어떻게 신청하나요?",
+    "경조사 지원금 얼마 나와요?",
+    "노트북이 고장났는데 어디에 요청하나요?",
+    "재직증명서는 어디서 발급받나요?",
+  ]);
   // 복원할 지난 대화가 있을 때만 기다립니다.
   // 그렇지 않으면 인사말과 추천 질문을 즉시 보여 줘야 합니다 —
   // 서버가 잠들어 있을 때 API를 기다리느라 빈 화면을 보여 줄 이유가 없습니다.
@@ -43,16 +58,6 @@ export default function ChatShell() {
   const botName = settings?.bot_name || "답봇";
   const welcome = settings?.welcome_message || "안녕하세요. 팀 지식에서 근거를 찾아 답해드릴게요.";
 
-  const suggestions = useMemo(
-    () => [
-      "연차 휴가는 어떻게 신청하나요?",
-      "경조사 지원금 얼마 나와요?",
-      "노트북이 고장났는데 어디에 요청하나요?",
-      "재직증명서는 어디서 발급받나요?",
-    ],
-    [],
-  );
-
   const loadSidebar = useCallback(async () => {
     const data = await fetchJson<BootstrapData>("/api/bootstrap", 2);
     if (!data) {
@@ -62,6 +67,8 @@ export default function ChatShell() {
     setLoadFailed(false);
     if (data.settings) setSettings(data.settings);
     if (Array.isArray(data.conversations)) setConversations(data.conversations);
+    if (Array.isArray(data.suggestions) && data.suggestions.length) setSuggestions(data.suggestions);
+    setUser(data.user ?? null);
   }, []);
 
   /** 지난 대화를 화면 메시지로 되살립니다. */
@@ -218,6 +225,12 @@ export default function ChatShell() {
     abortRef.current?.abort();
   }
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.localStorage.removeItem(LAST_CONVERSATION_KEY);
+    location.href = "/login";
+  }
+
   function newChat() {
     setMessages([]);
     setConversationId(undefined);
@@ -285,9 +298,20 @@ export default function ChatShell() {
           )}
         </div>
 
-        <button className="side-admin" onClick={() => { location.href = "/admin"; }}>
-          <Settings2 size={13}/> 관리자
-        </button>
+        <div className="side-bottom">
+          {user && (
+            <div className="side-user">
+              <span className="side-user-avatar">{user.name.slice(0, 1)}</span>
+              <span className="side-user-name" title={user.email}>{user.name}</span>
+              <button className="side-user-out" onClick={logout} aria-label="로그아웃">
+                <LogOut size={13}/>
+              </button>
+            </div>
+          )}
+          <button className="side-admin" onClick={() => { location.href = "/admin"; }}>
+            <Settings2 size={13}/> 관리자
+          </button>
+        </div>
       </aside>
 
       <main className="chat-main">
@@ -314,8 +338,14 @@ export default function ChatShell() {
           ) : empty ? (
             <div className="chat-empty">
               <div className="welcome-mark">{botName.slice(0, 1)}</div>
-              <h2 className="welcome-title">{welcome}</h2>
-              <p className="hint">복리후생, 인사행정, IT 지원처럼 업무와 관련된 질문을 입력해 보세요.</p>
+              <h2 className="welcome-title">
+                {user ? `${user.name}님, ${welcome}` : welcome}
+              </h2>
+              <p className="hint">
+                {conversations.length > 0
+                  ? "이어서 물어보시거나, 왼쪽에서 지난 대화를 다시 열 수 있습니다."
+                  : "복리후생, 인사행정, IT 지원처럼 업무와 관련된 질문을 입력해 보세요."}
+              </p>
               <div className="suggestions">
                 {suggestions.map(item => (
                   <button className="suggestion" key={item} onClick={() => { setQuestion(item); inputRef.current?.focus(); }}>

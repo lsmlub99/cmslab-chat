@@ -35,7 +35,12 @@ export async function GET(request: Request) {
           count(*) filter (where is_followup)::int as followups,
           count(*) filter (where not coalesce(is_fallback, false))::int as answered,
           count(*) filter (where coalesce(is_fallback, false))::int as unanswered,
-          count(distinct user_id)::int as users,
+          -- 로그인 도입 전 기록은 user_email 이 비어 있습니다.
+          -- 그 시절 user_id 는 브라우저 쿠키라 사람 수로 셀 수 없으므로
+          -- "사용자 수"는 로그인 계정만 셉니다(성과 보고에 쓰는 값이라 기준을 분명히 둡니다).
+          count(distinct user_id) filter (where user_email is not null)::int as users,
+          count(distinct user_id)::int as visitors,
+          count(*) filter (where user_email is null)::int as anonymous_questions,
           count(*) filter (where not coalesce(is_fallback, false) and coalesce(citation_count, 0) > 0)::int as with_citation,
           coalesce(avg(response_ms) filter (where not coalesce(is_fallback, false) and response_ms is not null), 0)::int as avg_response_ms,
           coalesce(avg(top_similarity) filter (where top_similarity is not null), 0)::float8 as avg_similarity
@@ -93,6 +98,20 @@ export async function GET(request: Request) {
       select count(*)::int as pending from public.chat_logs where coalesce(is_fallback, false)
     `;
 
+    // 누가 얼마나 쓰는지. 성과 보고에서 "사용자 수"의 근거가 되는 목록입니다.
+    const people = await sql`
+      select coalesce(max(user_name), '이름 없음') as name,
+             user_email as email,
+             count(*)::int as questions,
+             count(*) filter (where not coalesce(is_fallback, false))::int as answered,
+             max(created_at) as last_at
+      from public.chat_logs
+      where created_at >= ${from} and created_at <= ${to} and user_email is not null
+      group by user_email
+      order by questions desc, last_at desc
+      limit 50
+    `;
+
     const row = totals[0];
     const questions = Number(row.questions);
     const answered = Number(row.answered);
@@ -104,6 +123,8 @@ export async function GET(request: Request) {
         questions,
         followups: Number(row.followups),
         users: Number(row.users),
+        visitors: Number(row.visitors),
+        anonymousQuestions: Number(row.anonymous_questions),
         answeredRate: percent(answered, questions),
         unansweredRate: percent(Number(row.unanswered), questions),
         reuse: Number(documents[0].reuse),
@@ -127,6 +148,13 @@ export async function GET(request: Request) {
         category: String(item.category),
         questions: Number(item.questions),
         answered: Number(item.answered),
+      })),
+      people: people.map(item => ({
+        name: String(item.name),
+        email: String(item.email),
+        questions: Number(item.questions),
+        answered: Number(item.answered),
+        lastAt: item.last_at instanceof Date ? item.last_at.toISOString() : String(item.last_at ?? ""),
       })),
     });
   } catch (error) {

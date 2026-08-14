@@ -5,6 +5,7 @@ import { hasOpenAIConfig } from "@/lib/openai";
 import { buildSearchQuery, HISTORY_TURNS, isEmptyAnswer, saysInsufficient, streamAnswer } from "@/lib/rag/answer";
 import { createStreamSanitizer } from "@/lib/rag/sanitize";
 import { listTurns } from "@/lib/conversations";
+import { readSession, readSessionCookie } from "@/lib/google-auth";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit, requesterKey } from "@/lib/rate-limit";
 import { MATCH_COUNT, TOP_MATCH_THRESHOLD } from "@/lib/rag/config";
 import { documentTitle, incrementReuse, isStrongMatch, searchDocuments, type SearchRow } from "@/lib/existing-db";
@@ -23,6 +24,9 @@ type ChatLogInput = {
   category: string;
   fallback: boolean;
   actor: string;
+  /** 로그인 사용자일 때만 채워집니다. 관리자가 미답변 질문의 주인을 찾을 때 씁니다. */
+  email: string | null;
+  name: string | null;
   conversationId: string;
   responseMs: number;
   followup: boolean;
@@ -34,12 +38,12 @@ async function insertChatLog(input: ChatLogInput) {
   const sql = database();
   const rows = await sql`
     insert into public.chat_logs
-      (user_message, bot_answer, category, is_fallback, user_id, conversation_id,
-       response_ms, is_followup, citation_count, top_similarity)
+      (user_message, bot_answer, category, is_fallback, user_id, user_email, user_name,
+       conversation_id, response_ms, is_followup, citation_count, top_similarity)
     values
       (${input.question}, ${input.answer}, ${input.category}, ${input.fallback}, ${input.actor},
-       ${input.conversationId}, ${input.responseMs}, ${input.followup}, ${input.citationCount},
-       ${input.topSimilarity})
+       ${input.email}, ${input.name}, ${input.conversationId}, ${input.responseMs},
+       ${input.followup}, ${input.citationCount}, ${input.topSimilarity})
     returning id
   `;
   return Number(rows[0].id);
@@ -98,13 +102,23 @@ export async function POST(request: Request) {
   }
 
   const activeConversation = conversationId || randomUUID();
-  const cookieUser = request.headers.get("cookie")?.match(/(?:^|;\s*)answerbot_user=([^;]+)/)?.[1];
-  const actor = userId || cookieUser || randomUUID();
-  const setUserCookie = cookieUser ? "" : `answerbot_user=${actor}; Path=/; Max-Age=31536000; SameSite=Lax`;
   const followup = Boolean(conversationId);
 
+  /*
+   * 사용자 식별.
+   * 로그인했으면 구글 계정 ID(sub)를 씁니다 — 기기를 바꿔도 값이 같아서
+   * "사용자 수" 지표가 사람 단위로 집계되고 대화 기록도 따라옵니다.
+   * 로그인 설정 전에는 예전처럼 익명 쿠키로 물러섭니다.
+   */
+  const session = await readSession(readSessionCookie(request));
+  const cookieUser = request.headers.get("cookie")?.match(/(?:^|;\s*)answerbot_user=([^;]+)/)?.[1];
+  const actor = session?.id || userId || cookieUser || randomUUID();
+  const setUserCookie = session || cookieUser
+    ? ""
+    : `answerbot_user=${actor}; Path=/; Max-Age=31536000; SameSite=Lax`;
+
   // 질문 연발로 OpenAI 과금이 튀는 것을 막습니다.
-  const limit = await rateLimit(requesterKey(request, cookieUser), CHAT_LIMIT(), CHAT_WINDOW_SECONDS());
+  const limit = await rateLimit(requesterKey(request, session?.id || cookieUser), CHAT_LIMIT(), CHAT_WINDOW_SECONDS());
   if (!limit.allowed) {
     return NextResponse.json(
       { error: `질문이 너무 빠릅니다. ${limit.retryAfter}초 후 다시 시도해 주세요.` },
@@ -141,6 +155,8 @@ export async function POST(request: Request) {
         category: "fallback",
         fallback: true,
         actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
         conversationId: activeConversation,
         responseMs: Date.now() - started,
         followup,
@@ -212,6 +228,8 @@ export async function POST(request: Request) {
             category: insufficient ? "fallback" : String(rows[0].metadata.category || "general"),
             fallback: insufficient,
             actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
             conversationId: activeConversation,
             responseMs: Date.now() - started,
             followup,
@@ -258,6 +276,8 @@ export async function POST(request: Request) {
             category: String(rows[0].metadata.category || "general"),
             fallback: false,
             actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
             conversationId: activeConversation,
             responseMs: Date.now() - started,
             followup,

@@ -241,12 +241,20 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         </div>
       </section>
 
-      <KpiGroup title="이용 현황" hint="챗봇이 실제로 쓰이고 있는지">
-        <Kpi label="질문 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건`}/>
-        <Kpi label="사용자 수" value={`${t.users}명`} note="기간 내 질문한 사람"/>
-        <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질문 수 ÷ 사용자 수"/>
+      <KpiGroup title="이용 현황" hint="챗봇이 실제로 쓰이고 있는지 — 성과 보고용 핵심 지표">
+        <Kpi label="질의응답 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건 포함`}/>
+        <Kpi label="사용자 수" value={`${t.users}명`} note="로그인 계정 기준"/>
+        <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질의응답 ÷ 사용자"/>
         <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
       </KpiGroup>
+
+      {t.anonymousQuestions > 0 && (
+        <div className="notice">
+          로그인 도입 전에 쌓인 질문 {t.anonymousQuestions}건이 포함돼 있습니다.
+          그 기록은 브라우저 쿠키로만 구분돼 사람 수를 셀 수 없어 <b>사용자 수에서 제외</b>했습니다.
+          (쿠키까지 포함하면 {t.visitors}개 브라우저)
+        </div>
+      )}
 
       <KpiGroup title="답변 품질" hint="제대로 답하고 있는지">
         <Kpi label="답변 완료율" value={`${t.answeredRate}%`} note={`미답변 ${t.unansweredRate}%`}/>
@@ -281,6 +289,36 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
           </div>
         ) : (
           <div className="empty">이 기간에는 질문 기록이 없습니다.</div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <h2>사용자별 이용</h2>
+            <div className="hint">사용자 수 지표의 근거입니다. 로그인 계정 기준으로 집계합니다.</div>
+          </div>
+          <span className="badge">{data.people.length}명</span>
+        </div>
+        {data.people.length ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>이름</th><th>계정</th><th>질문</th><th>답변</th><th>최근 이용</th></tr></thead>
+              <tbody>
+                {data.people.map(person => (
+                  <tr key={person.email}>
+                    <td>{person.name}</td>
+                    <td>{person.email}</td>
+                    <td>{person.questions}건</td>
+                    <td>{person.answered}건</td>
+                    <td>{new Date(person.lastAt).toLocaleDateString("ko-KR")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty">이 기간에 로그인해서 질문한 사용자가 없습니다.</div>
         )}
       </section>
 
@@ -673,6 +711,7 @@ function QuestionsPanel({ questions, onDone, onError }: {
               <div className="question-title">{item.question}</div>
               <div className="meta">
                 {new Date(item.created_at).toLocaleString("ko-KR")} · {item.user_key || "익명"}
+                {item.user_email ? ` (${item.user_email})` : ""}
                 {item.top_similarity !== null ? ` · 최고 유사도 ${item.top_similarity.toFixed(3)}` : ""}
               </div>
               <span className="badge red">미답변</span>

@@ -66,6 +66,15 @@ alter table public.chat_logs add column if not exists is_followup boolean not nu
 alter table public.chat_logs add column if not exists citation_count integer not null default 0;
 alter table public.chat_logs add column if not exists top_similarity numeric;
 
+-- 구글 로그인 도입 후 추가.
+-- user_id 는 구글 계정의 고유 식별자(sub)입니다. 사람이 바뀌어도 값이 유지되므로
+-- "사용자 수" 지표의 기준이 됩니다. 이메일은 바뀔 수 있어 기준으로 쓰지 않습니다.
+-- 로그인 전(쿠키 시절) 기록은 user_email 이 비어 있습니다.
+alter table public.chat_logs add column if not exists user_email text;
+alter table public.chat_logs add column if not exists user_name text;
+
+create index if not exists chat_logs_user_email_idx on public.chat_logs(user_email);
+
 create index if not exists chat_logs_created_at_idx on public.chat_logs(created_at desc);
 create index if not exists chat_logs_user_id_idx on public.chat_logs(user_id);
 create index if not exists chat_logs_fallback_idx on public.chat_logs(is_fallback, created_at desc);

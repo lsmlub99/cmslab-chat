@@ -1,4 +1,5 @@
 import { database } from "@/lib/database";
+import { readSession, readSessionCookie } from "@/lib/google-auth";
 import type { Citation } from "@/lib/types";
 
 export type ConversationTurn = {
@@ -18,8 +19,16 @@ export type ConversationSummary = {
   hasUnanswered: boolean;
 };
 
-/** 쿠키에서 익명 사용자 식별자를 읽습니다. 채팅 API가 첫 질문 때 발급합니다. */
-export function readUserCookie(request: Request) {
+/**
+ * 요청자의 사용자 식별자.
+ *
+ * 로그인 도입 후에는 구글 계정 ID(sub)를 씁니다. 사람마다 값이 고정되므로
+ * 기기를 바꾸거나 쿠키를 지워도 자기 대화 기록을 그대로 봅니다.
+ * 로그인 설정 전이거나 세션이 없으면 예전 익명 쿠키로 물러섭니다.
+ */
+export async function currentUserId(request: Request) {
+  const session = await readSession(readSessionCookie(request));
+  if (session) return session.id;
   return request.headers.get("cookie")?.match(/(?:^|;\s*)answerbot_user=([^;]+)/)?.[1] ?? "";
 }
 

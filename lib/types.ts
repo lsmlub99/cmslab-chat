@@ -27,7 +27,12 @@ export type KnowledgeDocument = {
 export type DashboardTotals = {
   questions: number;
   followups: number;
+  /** 로그인 계정 기준 실제 사용자 수. 성과 지표에 쓰는 값입니다. */
   users: number;
+  /** 로그인 전 익명 쿠키까지 포함한 수. 참고용입니다. */
+  visitors: number;
+  /** 로그인 도입 전에 쌓인 질문 수. */
+  anonymousQuestions: number;
   answeredRate: number;
   unansweredRate: number;
   reuse: number;
@@ -47,13 +52,16 @@ export type DashboardData = {
   totals: DashboardTotals;
   series: { date: string; label: string; questions: number; answered: number }[];
   topics: { category: string; questions: number; answered: number }[];
+  people: { name: string; email: string; questions: number; answered: number; lastAt: string }[];
 };
 
 export type UnansweredQuestion = {
   id: number;
   question: string;
   created_at: string;
+  /** 로그인 사용자면 이름, 아니면 "익명 xxxxxx". */
   user_key: string | null;
+  user_email: string | null;
   top_similarity: number | null;
 };
 
