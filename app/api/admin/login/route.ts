@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createSessionToken, hasAdminPassword, sessionCookie, verifyPassword } from "@/lib/auth";
 import { rateLimit, requesterKey } from "@/lib/rate-limit";
 
+// Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
+// 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 /**
  * 비밀번호 무차별 대입을 막습니다. 5분에 8회.
  * 성공해도 카운트는 그대로 둡니다 — 성공 시 리셋하면 맞는 비밀번호 하나를 섞어

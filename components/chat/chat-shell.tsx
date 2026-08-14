@@ -1,7 +1,7 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, ChevronRight, ExternalLink, MessageSquarePlus, Settings2, Square, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
-import type { Citation, ConversationSummary, ConversationTurn, DashboardData, UnansweredQuestion } from "@/lib/types";
+import type { Citation, ConversationSummary, ConversationTurn, UnansweredQuestion } from "@/lib/types";
 
 type Message = {
   id: string;
@@ -13,6 +13,27 @@ type Message = {
 };
 
 type Settings = { bot_name: string; team_name: string; welcome_message: string };
+
+type ChatStats = {
+  questions: number;
+  followups: number;
+  answeredRate: number;
+  unansweredRate: number;
+  reuse: number;
+  pending: number;
+  documents: number;
+  chunks: number;
+};
+
+type Topic = { category: string; questions: number; answered: number };
+
+type BootstrapData = {
+  settings: Settings;
+  stats: ChatStats | null;
+  topics: Topic[];
+  unanswered: UnansweredQuestion[];
+  conversations: ConversationSummary[];
+};
 
 /** 마지막으로 보던 대화를 기억해 두었다가 새로고침 후 복원합니다. */
 const LAST_CONVERSATION_KEY = "answerbot:last-conversation";
@@ -26,8 +47,9 @@ export default function ChatShell() {
   const [restoring, setRestoring] = useState(true);
   const [feedback, setFeedback] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Settings>();
-  const [stats, setStats] = useState<DashboardData>();
+  const [stats, setStats] = useState<{ totals: ChatStats; topics: Topic[] }>();
   const [pending, setPending] = useState<UnansweredQuestion[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   // 답변 중단용. 요청을 끊으면 서버가 모델 호출도 함께 끊습니다.
   const abortRef = useRef<AbortController>(null);
@@ -49,16 +71,22 @@ export default function ChatShell() {
     [],
   );
 
+  /**
+   * 첫 화면에 필요한 것을 한 번에 받아옵니다.
+   * 예전에는 API 4개를 동시에 호출했는데, 서버리스에서는 잠들어 있던 함수 4개를
+   * 한꺼번에 깨우는 셈이라 첫 접속이 매우 느리거나 시간 초과로 실패했습니다.
+   */
   const loadSidebar = useCallback(async () => {
-    // 화면의 모든 수치는 실제 DB 집계입니다. 실패하면 숫자를 지어내지 않고 비워 둡니다.
-    const [dashboard, unanswered, list] = await Promise.all([
-      fetchJson<DashboardData>("/api/dashboard?days=7"),
-      fetchJson<UnansweredQuestion[]>("/api/questions/unanswered?limit=4"),
-      fetchJson<ConversationSummary[]>("/api/conversations"),
-    ]);
-    if (dashboard) setStats(dashboard);
-    if (Array.isArray(unanswered)) setPending(unanswered);
-    if (Array.isArray(list)) setConversations(list);
+    const data = await fetchJson<BootstrapData>("/api/bootstrap", 2);
+    if (!data) {
+      setLoadFailed(true);
+      return;
+    }
+    setLoadFailed(false);
+    if (data.settings) setSettings(data.settings);
+    if (data.stats) setStats({ totals: data.stats, topics: data.topics ?? [] });
+    if (Array.isArray(data.unanswered)) setPending(data.unanswered);
+    if (Array.isArray(data.conversations)) setConversations(data.conversations);
   }, []);
 
   /** 지난 대화를 화면 메시지로 되살립니다. */
@@ -89,14 +117,13 @@ export default function ChatShell() {
 
   useEffect(() => {
     void (async () => {
-      const loaded = await fetchJson<Settings>("/api/settings");
-      if (loaded) setSettings(loaded);
-
+      // 지난 대화 복원과 첫 화면 데이터를 함께 받아옵니다.
       const last = window.localStorage.getItem(LAST_CONVERSATION_KEY);
-      if (last) await openConversation(last);
+      await Promise.all([
+        last ? openConversation(last) : Promise.resolve(false),
+        loadSidebar(),
+      ]);
       setRestoring(false);
-
-      await loadSidebar();
     })();
   }, [loadSidebar, openConversation]);
 
@@ -291,6 +318,15 @@ export default function ChatShell() {
           </div>
         </header>
 
+        {loadFailed && (
+          <div className="notice">
+            현황 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.
+            <button className="btn soft" style={{ marginLeft: 10 }} onClick={() => { setLoadFailed(false); void loadSidebar(); }}>
+              다시 시도
+            </button>
+          </div>
+        )}
+
         <section className="stats">
           <Stat label="최근 7일 질문" value={totals ? `${totals.questions}건` : "—"} note={totals ? `재질문 ${totals.followups}건` : "집계 준비 중"}/>
           <Stat label="답변 완료율" value={totals ? `${totals.answeredRate}%` : "—"} note={totals ? `미답변 ${totals.unansweredRate}%` : "집계 준비 중"}/>
@@ -431,15 +467,25 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
   return <div className="stat"><label>{label}</label><strong>{value}</strong><span className="up">{note}</span></div>;
 }
 
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data && (data as { error?: string }).error ? null : (data as T);
-  } catch {
-    return null;
+/**
+ * 실패하면 잠깐 쉬었다 다시 시도합니다.
+ * Vercel 함수가 잠들어 있으면 첫 요청이 시간 초과로 죽는 일이 있는데,
+ * 그때 화면이 빈 채로 남지 않도록 한 번 더 두드립니다.
+ */
+async function fetchJson<T>(url: string, retries = 0): Promise<T | null> {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (!data || !(data as { error?: string }).error) return data as T;
+      }
+    } catch {
+      // 네트워크 오류 — 아래에서 재시도합니다.
+    }
+    if (attempt < retries) await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
   }
+  return null;
 }
 
 function formatWhen(value: string) {

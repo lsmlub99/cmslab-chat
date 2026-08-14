@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { database, hasDatabaseConfig } from "@/lib/database";
 
+// Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
+// 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 /**
  * 운영 지표. 모든 수치는 public.chat_logs / feedback / documents 실측값입니다.
  *

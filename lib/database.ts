@@ -12,16 +12,18 @@ export function database() {
 
   /*
    * 서버리스(Vercel)에서는 요청이 몰리면 인스턴스가 여러 개 뜨고, 각자 커넥션을 엽니다.
-   * 인스턴스당 커넥션을 크게 잡으면 Supabase 풀러의 상한을 금방 넘겨
-   * "remaining connection slots are reserved" 오류가 납니다.
-   * 그래서 서버리스에서는 인스턴스당 1개만 쓰고 유휴 커넥션을 빨리 닫습니다.
-   * (Vercel 환경변수의 DATABASE_URL 은 트랜잭션 풀러 6543 포트를 쓰세요.)
+   * 인스턴스당 커넥션을 크게 잡으면 Supabase 풀러 상한을 넘길 수 있습니다.
+   *
+   * 다만 1개로 조이면 반대 문제가 생깁니다. 한 요청이 쿼리를 병렬로 던져도
+   * 커넥션이 하나뿐이라 전부 순차 실행됩니다. 대시보드(쿼리 6개)가 계속 2초 걸리던
+   * 원인이 이것이었습니다. 트랜잭션 풀러(6543)는 쿼리 단위로 커넥션을 돌려쓰므로
+   * 인스턴스당 3개 정도는 안전하면서 병렬성도 살릴 수 있습니다.
    */
   const serverless = Boolean(process.env.VERCEL);
 
   client ??= postgres(url, {
-    max: serverless ? 1 : 5,
-    idle_timeout: serverless ? 10 : 20,
+    max: serverless ? 3 : 5,
+    idle_timeout: serverless ? 20 : 20,
     connect_timeout: 15,
     ssl: "require",
     // Supabase 풀러(pgbouncer) 뒤에서는 prepared statement 를 세션 간에 재사용할 수 없습니다.

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { hasDatabaseConfig } from "@/lib/database";
 import { listConversations, readUserCookie } from "@/lib/conversations";
 
+// Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
+// 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 /** 이 브라우저(쿠키 기준)의 대화 목록. */
 export async function GET(request: Request) {
   if (!hasDatabaseConfig()) {

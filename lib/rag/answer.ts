@@ -92,9 +92,24 @@ export function buildSearchQuery(question: string, history: HistoryTurn[]) {
   return looksDependent ? `${previous} ${question}` : question;
 }
 
-/** 모델이 근거 부족을 알렸는지 판정합니다(미답변 대기열로 넘길지 결정). */
-export function isInsufficient(answer: string) {
+/**
+ * 모델이 "근거가 부족합니다"라고 답했는지 — 즉 진짜 지식 공백인지 판정합니다.
+ * 이때만 미답변 대기열에 넣어야 관리자가 채울 문서를 알 수 있습니다.
+ */
+export function saysInsufficient(answer: string) {
   const trimmed = answer.trim();
-  if (!trimmed) return true;
+  if (!trimmed) return false;
   return trimmed.length <= INSUFFICIENT_MARKER.length + 12 && trimmed.includes(INSUFFICIENT_MARKER);
+}
+
+/**
+ * 모델이 아무것도 내놓지 않은 경우.
+ *
+ * 지식 공백과는 다릅니다. 실제로 근거를 6개나 찾아 유사도 0.46이 나온 질문에서
+ * 모델이 빈 응답을 돌려준 적이 있는데, 이걸 "지식 없음"으로 기록하는 바람에
+ * 답변 가능한 질문이 미답변 대기열에 쌓였습니다.
+ * 이건 일시적인 오류이므로 기록하지 않고 사용자에게 재시도를 안내합니다.
+ */
+export function isEmptyAnswer(answer: string) {
+  return answer.trim().length === 0;
 }

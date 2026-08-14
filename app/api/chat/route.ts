@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { chatSchema } from "@/lib/validation";
 import { hasOpenAIConfig } from "@/lib/openai";
-import { buildSearchQuery, HISTORY_TURNS, isInsufficient, streamAnswer } from "@/lib/rag/answer";
+import { buildSearchQuery, HISTORY_TURNS, isEmptyAnswer, saysInsufficient, streamAnswer } from "@/lib/rag/answer";
 import { createStreamSanitizer } from "@/lib/rag/sanitize";
 import { listTurns } from "@/lib/conversations";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit, requesterKey } from "@/lib/rate-limit";
@@ -184,13 +184,25 @@ export async function POST(request: Request) {
           }
 
           const { text: answer, tail, replace } = sanitizer.finish();
+
+          /*
+           * 모델이 아무것도 내놓지 않은 경우는 지식 공백이 아니라 일시적인 오류입니다.
+           * 기록으로 남기면 답변 가능한 질문이 미답변 대기열에 쌓이므로 남기지 않고
+           * 재시도를 안내합니다.
+           */
+          if (isEmptyAnswer(answer)) {
+            settled = true;
+            send("error", { message: "답변을 생성하지 못했습니다. 다시 한번 질문해 주세요." });
+            return;
+          }
+
           if (replace) send("replace", { text: answer });
           else if (tail) send("delta", { text: tail });
 
           settled = true;
 
           // 모델이 "근거가 부족합니다"로 답하면 인용을 붙이지 않고 미답변으로 넘깁니다.
-          const insufficient = isInsufficient(answer);
+          const insufficient = saysInsufficient(answer);
           const finalAnswer = insufficient ? FALLBACK_ANSWER : answer;
           const finalCitations = insufficient ? [] : citations;
 
