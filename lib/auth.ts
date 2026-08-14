@@ -42,22 +42,43 @@ async function hmac(message: string) {
   return base64Url(new Uint8Array(signature));
 }
 
-export async function createSessionToken(now = Date.now()) {
+/**
+ * 관리자 세션 토큰.
+ *
+ * boundUserId 를 함께 서명하면 그 사람의 세션에서만 유효합니다.
+ * 예전에는 만료 시각만 서명해서, 같은 브라우저에서 구글 계정을 바꿔도
+ * 관리자 권한이 그대로 남았습니다(관리자 쿠키에 신원이 없었기 때문입니다).
+ */
+export async function createSessionToken(now = Date.now(), boundUserId?: string) {
   const expiresAt = String(now + SESSION_MS);
-  return `${expiresAt}.${await hmac(expiresAt)}`;
+  const payload = boundUserId ? `${expiresAt}:${boundUserId}` : expiresAt;
+  return `${payload}.${await hmac(payload)}`;
 }
 
-export async function verifySessionToken(token: string | undefined, now = Date.now()) {
+export async function verifySessionToken(
+  token: string | undefined,
+  now = Date.now(),
+  currentUserId?: string,
+) {
   if (!token || !hasAdminPassword()) return false;
 
   const separator = token.lastIndexOf(".");
   if (separator <= 0) return false;
 
-  const expiresAt = token.slice(0, separator);
+  const payload = token.slice(0, separator);
   const signature = token.slice(separator + 1);
+  if (!timingSafeEqual(signature, await hmac(payload))) return false;
+
+  const [expiresAt, boundUserId] = payload.split(":");
   if (!/^\d+$/.test(expiresAt) || Number(expiresAt) < now) return false;
 
-  return timingSafeEqual(signature, await hmac(expiresAt));
+  // 로그인한 사람이 바뀌었으면 관리자 권한도 끊습니다.
+  if (boundUserId && boundUserId !== currentUserId) return false;
+  // 로그인 사용자가 있는데 토큰이 그 사람과 묶여 있지 않으면(구글 로그인 도입 전에
+  // 발급된 토큰) 다시 로그인하게 합니다.
+  if (!boundUserId && currentUserId) return false;
+
+  return true;
 }
 
 /** 입력한 비밀번호 확인. 길이·내용이 응답 시간에 드러나지 않도록 해시를 비교합니다. */

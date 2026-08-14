@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSessionToken, hasAdminPassword, sessionCookie, verifyPassword } from "@/lib/auth";
 import { rateLimit, requesterKey } from "@/lib/rate-limit";
+import { readSession, readSessionCookie } from "@/lib/google-auth";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -36,10 +37,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "비밀번호가 올바르지 않습니다." }, { status: 401 });
   }
 
+  // 로그인한 사람과 관리자 세션을 묶습니다. 계정이 바뀌면 권한도 끊깁니다.
+  const user = await readSession(readSessionCookie(request));
+
   const response = NextResponse.json({ ok: true });
   response.headers.set(
     "Set-Cookie",
-    sessionCookie(await createSessionToken(), new URL(request.url).protocol === "https:"),
+    sessionCookie(await createSessionToken(Date.now(), user?.id), new URL(request.url).protocol === "https:"),
   );
   return response;
 }

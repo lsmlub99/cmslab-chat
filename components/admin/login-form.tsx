@@ -7,6 +7,8 @@ export default function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const setupRequired = params.get("setup") === "1";
+  // 관리자로 지정되지 않은 계정으로 접근한 경우입니다.
+  const forbidden = params.get("error") === "forbidden";
   const next = params.get("next") || "/admin";
 
   const [password, setPassword] = useState("");
@@ -43,7 +45,21 @@ export default function LoginForm() {
         <h1 className="login-title">관리자 로그인</h1>
         <p className="hint">지식 문서와 챗봇 설정을 관리하려면 비밀번호가 필요합니다.</p>
 
-        {setupRequired ? (
+        {forbidden ? (
+          <>
+            <div className="login-error" style={{ marginTop: 18 }}>
+              현재 로그인한 계정에는 관리자 권한이 없습니다.
+              <br/>
+              관리자 계정으로 로그인하거나 담당자에게 권한을 요청해 주세요.
+            </div>
+            <button className="btn soft login-back" onClick={async () => {
+              await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+              location.href = "/login?next=%2Fadmin";
+            }}>
+              다른 계정으로 로그인
+            </button>
+          </>
+        ) : setupRequired ? (
           <div className="notice" style={{ marginTop: 18 }}>
             아직 관리자 비밀번호가 설정되지 않았습니다.
             <br/>

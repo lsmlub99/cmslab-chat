@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ADMIN_COOKIE, hasAdminPassword, verifySessionToken } from "@/lib/auth";
 import { hasDomainRestriction, hasGoogleCredentials, readSession, USER_COOKIE } from "@/lib/google-auth";
+import { isAdminEmail, usesEmailAdmin } from "@/lib/admin-access";
 
 /**
  * 접근 제어.
@@ -53,6 +54,9 @@ export async function middleware(request: NextRequest) {
    * ALLOWED_EMAIL_DOMAINS 를 빠뜨렸을 때 조건이 거짓이 되어 로그인을 건너뛰고
    * 사이트 전체가 열려 버립니다. 실수의 결과는 항상 "막힘"이어야 합니다.
    */
+  // 세션은 한 번만 읽어 아래 두 단계에서 함께 씁니다.
+  const user = await readSession(request.cookies.get(USER_COOKIE)?.value);
+
   if (hasGoogleCredentials()) {
     // 도메인 제한이 없으면 누구나 통과할 수 있으므로 아예 잠급니다.
     if (!hasDomainRestriction()) {
@@ -62,7 +66,6 @@ export async function middleware(request: NextRequest) {
         : NextResponse.redirect(new URL("/login?error=setup", request.url));
     }
 
-    const user = await readSession(request.cookies.get(USER_COOKIE)?.value);
     if (!user) {
       if (isApi) {
         return NextResponse.json({ error: "로그인이 필요합니다.", unauthenticated: true }, { status: 401 });
@@ -76,15 +79,34 @@ export async function middleware(request: NextRequest) {
   /* ── 2) 관리자 ────────────────────────────────────────────────────────── */
   if (!needsAdmin(pathname, request.method)) return NextResponse.next();
 
-  // 비밀번호를 정하지 않았으면 잠긴 상태로 둡니다(열어 두는 쪽이 더 위험합니다).
+  /*
+   * 이메일로 관리자를 지정하는 방식이 우선입니다.
+   * 권한이 신원에 붙으므로 계정을 바꾸면 권한도 함께 바뀝니다.
+   * 예전 비밀번호 방식은 관리자 쿠키에 신원이 없어서, 같은 브라우저에서
+   * 구글 계정만 바꿔도 관리자 권한이 남는 문제가 있었습니다.
+   */
+  if (usesEmailAdmin()) {
+    if (isAdminEmail(user?.email)) return NextResponse.next();
+    return isApi
+      ? NextResponse.json({ error: "관리자 권한이 없는 계정입니다.", unauthorized: true }, { status: 403 })
+      : NextResponse.redirect(new URL("/admin/login?error=forbidden", request.url));
+  }
+
+  // 비밀번호 방식(이메일 지정을 쓰지 않는 환경).
   if (!hasAdminPassword()) {
-    const message = ".env.local에 ADMIN_PASSWORD를 설정해야 관리자 기능을 쓸 수 있습니다.";
+    const message = "ADMIN_EMAILS 또는 ADMIN_PASSWORD 를 설정해야 관리자 기능을 쓸 수 있습니다.";
     return isApi
       ? NextResponse.json({ error: message, setupRequired: true }, { status: 503 })
       : NextResponse.redirect(new URL("/admin/login?setup=1", request.url));
   }
 
-  if (await verifySessionToken(request.cookies.get(ADMIN_COOKIE)?.value)) return NextResponse.next();
+  /*
+   * 비밀번호 방식에서도 관리자 세션을 로그인한 사람과 묶습니다.
+   * 계정이 바뀌면 관리자 권한도 끊어집니다.
+   */
+  if (await verifySessionToken(request.cookies.get(ADMIN_COOKIE)?.value, Date.now(), user?.id)) {
+    return NextResponse.next();
+  }
 
   if (isApi) {
     return NextResponse.json({ error: "관리자 로그인이 필요합니다.", unauthorized: true }, { status: 401 });
