@@ -26,10 +26,15 @@ export default function ChatShell() {
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const [restoring, setRestoring] = useState(true);
   const [feedback, setFeedback] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Settings>();
   const [loadFailed, setLoadFailed] = useState(false);
+  // 복원할 지난 대화가 있을 때만 기다립니다.
+  // 그렇지 않으면 인사말과 추천 질문을 즉시 보여 줘야 합니다 —
+  // 서버가 잠들어 있을 때 API를 기다리느라 빈 화면을 보여 줄 이유가 없습니다.
+  const [restoring, setRestoring] = useState(
+    () => typeof window !== "undefined" && Boolean(window.localStorage.getItem(LAST_CONVERSATION_KEY)),
+  );
 
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -85,11 +90,10 @@ export default function ChatShell() {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      const last = window.localStorage.getItem(LAST_CONVERSATION_KEY);
-      await Promise.all([last ? openConversation(last) : Promise.resolve(false), loadSidebar()]);
-      setRestoring(false);
-    })();
+    const last = window.localStorage.getItem(LAST_CONVERSATION_KEY);
+    // 지난 대화 복원과 설정 조회는 서로 기다릴 필요가 없습니다.
+    if (last) void openConversation(last).finally(() => setRestoring(false));
+    void loadSidebar();
   }, [loadSidebar, openConversation]);
 
   useEffect(() => {
