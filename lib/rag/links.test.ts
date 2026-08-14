@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { splitLinks } from "./links";
+import { extractUrls, splitLinks } from "./links";
+
+describe("extractUrls", () => {
+  it("본문에서 URL을 온전히 뽑는다", () => {
+    const text = "경조 가이드 https://docs.google.com/spreadsheets/d/1Knkjf5XhXtjdfM7G0nKb5hbX6hjgawNBRHh2_bTPhW0/edit?gid=7624651 참고";
+    expect(extractUrls(text)).toEqual([
+      "https://docs.google.com/spreadsheets/d/1Knkjf5XhXtjdfM7G0nKb5hbX6hjgawNBRHh2_bTPhW0/edit?gid=7624651",
+    ]);
+  });
+
+  it("같은 주소는 한 번만 돌려준다", () => {
+    expect(extractUrls("https://a.com/x 와 https://a.com/x")).toEqual(["https://a.com/x"]);
+  });
+
+  it("문장부호를 주소에 포함하지 않는다", () => {
+    expect(extractUrls("자세히는 https://example.com/guide.")).toEqual(["https://example.com/guide"]);
+  });
+
+  it("청크 경계에서 잘린 조각은 버린다", () => {
+    expect(extractUrls("http://a")).toEqual([]);
+  });
+
+  it("URL이 없으면 빈 배열", () => {
+    expect(extractUrls("연차는 15일입니다.")).toEqual([]);
+  });
+});
 
 describe("splitLinks", () => {
   it("링크가 없으면 통째로 하나의 조각이다", () => {

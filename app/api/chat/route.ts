@@ -9,6 +9,7 @@ import { readSession, readSessionCookie } from "@/lib/google-auth";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit, requesterKey } from "@/lib/rate-limit";
 import { MATCH_COUNT, TOP_MATCH_THRESHOLD } from "@/lib/rag/config";
 import { documentTitle, incrementReuse, isStrongMatch, searchDocuments, type SearchRow } from "@/lib/existing-db";
+import { extractUrls } from "@/lib/rag/links";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import type { Citation } from "@/lib/types";
 
@@ -70,6 +71,20 @@ async function insertCitations(chatLogId: number, citations: Citation[]) {
       "similarity",
     )}
   `;
+}
+
+/** 근거 청크에 들어 있는 링크를 문서 제목과 함께 모읍니다(중복 제거). */
+function collectLinks(rows: SearchRow[]) {
+  const seen = new Map<string, { url: string; title: string }>();
+  for (const row of rows) {
+    const title = documentTitle(row.metadata);
+    for (const url of extractUrls(row.content)) {
+      if (!seen.has(url)) seen.set(url, { url, title });
+    }
+    // 링크가 너무 많으면 화면이 지저분해집니다.
+    if (seen.size >= 5) break;
+  }
+  return [...seen.values()].slice(0, 5);
 }
 
 function toCitations(rows: SearchRow[]): Citation[] {
@@ -175,6 +190,14 @@ export async function POST(request: Request) {
     }
 
     const citations = toCitations(rows);
+
+    /*
+     * 관련 링크는 근거 문서에서 직접 뽑습니다.
+     * 모델에게 URL을 받아쓰게 하면 긴 문서 ID를 중간에서 잘라먹어
+     * 열리지 않는 링크가 됩니다(실제로 44자 ID가 27자에서 끊겼습니다).
+     */
+    const links = collectLinks(rows);
+
     const stream = await streamAnswer(question, citations, rows, history);
 
     const encoder = new TextEncoder();
@@ -187,7 +210,7 @@ export async function POST(request: Request) {
         const send = (event: string, data: unknown) =>
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
 
-        send("meta", { conversationId: activeConversation, citations });
+        send("meta", { conversationId: activeConversation, citations, links });
 
         try {
           for await (const event of stream) {
@@ -245,6 +268,8 @@ export async function POST(request: Request) {
           send("done", {
             questionId: logId,
             citations: finalCitations,
+            // 근거를 쓰지 않은 답변에는 링크도 붙이지 않습니다.
+            links: insufficient ? [] : links,
             unanswered: insufficient,
             ...(insufficient ? { answer: FALLBACK_ANSWER } : {}),
           });

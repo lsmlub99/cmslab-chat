@@ -4,11 +4,15 @@ import { Check, Copy, ExternalLink, LogOut, MessageSquarePlus, Settings2, Square
 import type { Citation, ConversationSummary, ConversationTurn } from "@/lib/types";
 import MessageText from "@/components/chat/message-text";
 
+type DocLink = { url: string; title: string };
+
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  /** 근거 문서에서 뽑은 링크. 모델이 받아쓴 주소는 잘릴 수 있어 쓰지 않습니다. */
+  links?: DocLink[];
   questionId?: number;
   unanswered?: boolean;
   error?: boolean;
@@ -204,7 +208,7 @@ export default function ChatShell() {
 
     if (event === "meta") {
       if (typeof data.conversationId === "string") rememberConversation(data.conversationId);
-      updateLast({ citations: (data.citations as Citation[]) || [] });
+      updateLast({ citations: (data.citations as Citation[]) || [], links: (data.links as DocLink[]) || [] });
     }
     if (event === "delta") updateLast(message => ({ content: message.content + String(data.text ?? "") }));
     if (event === "replace") updateLast({ content: String(data.text ?? "") });
@@ -212,6 +216,7 @@ export default function ChatShell() {
       updateLast({
         questionId: data.questionId as number,
         citations: (data.citations as Citation[]) || [],
+        links: (data.links as DocLink[]) || [],
         unanswered: Boolean(data.unanswered),
         ...(data.answer ? { content: String(data.answer) } : {}),
       });
@@ -365,6 +370,17 @@ export default function ChatShell() {
                     <Thinking/>
                   ) : (
                     <span className="hint">…</span>
+                  )}
+
+                  {Boolean(message.links?.length) && (
+                    <div className="doc-links">
+                      <span className="doc-links-label">관련 문서</span>
+                      {message.links?.map(link => (
+                        <a className="doc-link" key={link.url} href={link.url} target="_blank" rel="noreferrer">
+                          <ExternalLink size={11}/> {link.title}
+                        </a>
+                      ))}
+                    </div>
                   )}
 
                   {message.unanswered && (
