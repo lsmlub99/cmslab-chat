@@ -409,13 +409,18 @@ export default function ChatShell() {
 
                   {Boolean(message.citations?.length) && (
                     <div className="citations">
-                      {message.citations?.map((citation, position) => (
+                      {/*
+                        근거는 청크 단위라 한 문서에서 여러 개가 나옵니다.
+                        그대로 나열하면 같은 문서명이 반복돼 오류처럼 보이므로
+                        표시는 문서 단위로 묶습니다. 기록에는 청크별로 남습니다.
+                      */}
+                      {dedupeByTitle(message.citations).map(citation => (
                         citation.sourceUrl ? (
-                          <a className="citation" key={`${citation.id}-${position}`} href={citation.sourceUrl} target="_blank" rel="noreferrer">
+                          <a className="citation" key={citation.title} href={citation.sourceUrl} target="_blank" rel="noreferrer">
                             <ExternalLink size={11}/> {citation.title}
                           </a>
                         ) : (
-                          <span className="citation" key={`${citation.id}-${position}`}>{citation.title}</span>
+                          <span className="citation" key={citation.title}>{citation.title}</span>
                         )
                       ))}
                     </div>
@@ -518,6 +523,18 @@ async function fetchJson<T>(url: string, retries = 0): Promise<T | null> {
     if (attempt < retries) await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
   }
   return null;
+}
+
+/** 같은 문서에서 나온 근거를 하나로 묶습니다(가장 유사도가 높은 것을 대표로). */
+function dedupeByTitle(citations: Citation[] = []) {
+  const best = new Map<string, Citation>();
+  for (const citation of citations) {
+    const current = best.get(citation.title);
+    if (!current || (citation.similarity ?? 0) > (current.similarity ?? 0)) {
+      best.set(citation.title, citation);
+    }
+  }
+  return [...best.values()];
 }
 
 function formatWhen(value: string) {
