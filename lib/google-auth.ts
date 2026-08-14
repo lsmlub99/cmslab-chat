@@ -35,14 +35,20 @@ function googleClientSecret() {
   return process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "";
 }
 
-export function hasGoogleConfig() {
+/**
+ * 구글 로그인을 쓰기로 한 상태인지(자격증명 존재).
+ * 이 값이 참이면 미들웨어가 로그인을 요구합니다.
+ */
+export function hasGoogleCredentials() {
   return Boolean(googleClientId() && googleClientSecret());
 }
 
-/**
- * 로그인을 허용할 이메일 도메인 목록.
- * 비워 두면 도메인 제한 없이 구글 계정이면 모두 허용되므로 반드시 설정하세요.
- */
+/** 로그인을 실제로 받을 수 있는지. 도메인 제한까지 갖춰져야 합니다. */
+export function hasGoogleConfig() {
+  return hasGoogleCredentials() && hasDomainRestriction();
+}
+
+/** 로그인을 허용할 이메일 도메인 목록. */
 export function allowedDomains() {
   return (process.env.ALLOWED_EMAIL_DOMAINS ?? "")
     .split(",")
@@ -50,9 +56,24 @@ export function allowedDomains() {
     .filter(Boolean);
 }
 
+/**
+ * 도메인 제한이 설정되어 있는지.
+ *
+ * 설정을 빠뜨리면 로그인 자체를 막습니다.
+ * 예전에는 비어 있으면 "제한 없음"으로 통과시켰는데, 환경변수 하나를 빠뜨리는 순간
+ * 아무 구글 계정으로나 사내 지식을 볼 수 있게 됩니다. 실제로 배포 후 이 변수를
+ * 빠뜨린 상태가 발견됐습니다. 실수의 결과가 "전체 공개"가 되어서는 안 되므로
+ * 막히는 쪽으로 뒤집었습니다.
+ */
+export function hasDomainRestriction() {
+  return allowedDomains().length > 0;
+}
+
 export function isAllowedEmail(email: string, hostedDomain?: string) {
   const domains = allowedDomains();
-  if (!domains.length) return true;
+  // 설정이 없으면 아무도 통과시키지 않습니다(열어 두는 쪽이 훨씬 위험합니다).
+  if (!domains.length) return false;
+
   const emailDomain = email.split("@")[1]?.toLowerCase() ?? "";
   // hd(hosted domain)는 구글 워크스페이스 계정에만 붙습니다.
   // 개인 gmail 이 회사 도메인처럼 보이는 별칭을 쓰는 경우를 막기 위해 둘 다 봅니다.

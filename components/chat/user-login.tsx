@@ -1,13 +1,10 @@
-"use client";
-import { useSearchParams } from "next/navigation";
-
 const MESSAGES: Record<string, string> = {
   domain: "회사 계정으로만 로그인할 수 있습니다. 다른 계정으로 시도하신 것 같습니다.",
   cancelled: "로그인이 취소되었습니다.",
   state: "로그인 요청이 만료되었거나 올바르지 않습니다. 다시 시도해 주세요.",
   expired: "로그인 요청이 만료되었습니다. 다시 시도해 주세요.",
   invalid: "로그인 정보를 확인하지 못했습니다. 다시 시도해 주세요.",
-  setup: "구글 로그인이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.",
+  setup: "로그인 설정이 완료되지 않았습니다. 관리자에게 문의해 주세요.",
 };
 
 export default function UserLogin({
@@ -15,16 +12,19 @@ export default function UserLogin({
   teamName,
   domains,
   configured,
+  error,
+  next,
 }: {
   botName: string;
   teamName: string;
   domains: string[];
   configured: boolean;
+  error?: string;
+  next?: string;
 }) {
-  const params = useSearchParams();
-  const error = params.get("error");
-  const next = params.get("next") || "/";
-  const loginHref = `/api/auth/login?next=${encodeURIComponent(next.startsWith("/") ? next : "/")}`;
+  // 외부 주소로 돌려보내지 않도록 앱 내부 경로만 허용합니다.
+  const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const loginHref = `/api/auth/login?next=${encodeURIComponent(safeNext)}`;
 
   return (
     <div className="login-page">
@@ -41,17 +41,16 @@ export default function UserLogin({
               <GoogleMark/>
               회사 구글 계정으로 로그인
             </a>
-            {domains.length > 0 && (
-              <p className="hint" style={{ marginTop: 12 }}>
-                {domains.map(domain => `@${domain}`).join(", ")} 계정만 이용할 수 있습니다.
-              </p>
-            )}
+            <p className="hint" style={{ marginTop: 12 }}>
+              {domains.map(domain => `@${domain}`).join(", ")} 계정만 이용할 수 있습니다.
+            </p>
           </>
         ) : (
           <div className="notice" style={{ marginTop: 18, textAlign: "left" }}>
-            구글 로그인이 설정되지 않았습니다.
+            로그인 설정이 완료되지 않았습니다. 환경변수를 확인해 주세요.
             <br/>
-            <code>GOOGLE_CLIENT_ID</code>와 <code>GOOGLE_CLIENT_SECRET</code>을 환경변수에 넣어 주세요.
+            <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>,{" "}
+            <code>ALLOWED_EMAIL_DOMAINS</code>
           </div>
         )}
       </section>

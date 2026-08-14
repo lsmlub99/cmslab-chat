@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ADMIN_COOKIE, hasAdminPassword, verifySessionToken } from "@/lib/auth";
-import { hasGoogleConfig, readSession, USER_COOKIE } from "@/lib/google-auth";
+import { hasDomainRestriction, hasGoogleCredentials, readSession, USER_COOKIE } from "@/lib/google-auth";
 
 /**
  * 접근 제어.
@@ -46,8 +46,22 @@ export async function middleware(request: NextRequest) {
   if (isOpen(pathname)) return NextResponse.next();
 
   /* ── 1) 사용자 로그인 ──────────────────────────────────────────────────── */
-  // 구글 설정이 없으면 로그인을 요구할 수 없습니다(설정 전에는 열어 둡니다).
-  if (hasGoogleConfig()) {
+  /*
+   * 구글 자격증명이 있으면 "로그인을 쓰기로 한 상태"로 보고 반드시 요구합니다.
+   *
+   * 여기서 hasGoogleConfig()(도메인 제한 포함)로 판단하면 안 됩니다.
+   * ALLOWED_EMAIL_DOMAINS 를 빠뜨렸을 때 조건이 거짓이 되어 로그인을 건너뛰고
+   * 사이트 전체가 열려 버립니다. 실수의 결과는 항상 "막힘"이어야 합니다.
+   */
+  if (hasGoogleCredentials()) {
+    // 도메인 제한이 없으면 누구나 통과할 수 있으므로 아예 잠급니다.
+    if (!hasDomainRestriction()) {
+      const message = "ALLOWED_EMAIL_DOMAINS 가 설정되지 않아 로그인을 받을 수 없습니다.";
+      return isApi
+        ? NextResponse.json({ error: message, setupRequired: true }, { status: 503 })
+        : NextResponse.redirect(new URL("/login?error=setup", request.url));
+    }
+
     const user = await readSession(request.cookies.get(USER_COOKIE)?.value);
     if (!user) {
       if (isApi) {
