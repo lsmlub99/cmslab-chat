@@ -1,0 +1,277 @@
+import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { chatSchema } from "@/lib/validation";
+import { hasOpenAIConfig } from "@/lib/openai";
+import { buildSearchQuery, HISTORY_TURNS, isInsufficient, streamAnswer } from "@/lib/rag/answer";
+import { createStreamSanitizer } from "@/lib/rag/sanitize";
+import { listTurns } from "@/lib/conversations";
+import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit, requesterKey } from "@/lib/rate-limit";
+import { MATCH_COUNT, TOP_MATCH_THRESHOLD } from "@/lib/rag/config";
+import { documentTitle, incrementReuse, isStrongMatch, searchDocuments, type SearchRow } from "@/lib/existing-db";
+import { database, hasDatabaseConfig } from "@/lib/database";
+import type { Citation } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const FALLBACK_ANSWER =
+  "등록된 팀 지식에서 확인되지 않는 내용입니다. 관리자에게 질문을 전달했으니 확인 후 지식으로 등록될 예정입니다.";
+
+type ChatLogInput = {
+  question: string;
+  answer: string;
+  category: string;
+  fallback: boolean;
+  actor: string;
+  conversationId: string;
+  responseMs: number;
+  followup: boolean;
+  citationCount: number;
+  topSimilarity: number | null;
+};
+
+async function insertChatLog(input: ChatLogInput) {
+  const sql = database();
+  const rows = await sql`
+    insert into public.chat_logs
+      (user_message, bot_answer, category, is_fallback, user_id, conversation_id,
+       response_ms, is_followup, citation_count, top_similarity)
+    values
+      (${input.question}, ${input.answer}, ${input.category}, ${input.fallback}, ${input.actor},
+       ${input.conversationId}, ${input.responseMs}, ${input.followup}, ${input.citationCount},
+       ${input.topSimilarity})
+    returning id
+  `;
+  return Number(rows[0].id);
+}
+
+async function insertCitations(chatLogId: number, citations: Citation[]) {
+  if (!citations.length) return;
+  const sql = database();
+  await sql`
+    insert into public.chat_log_citations ${sql(
+      citations.map((citation, index) => ({
+        chat_log_id: chatLogId,
+        document_id: citation.id,
+        position: index,
+        title: citation.title,
+        source_url: citation.sourceUrl ?? null,
+        similarity: citation.similarity ?? null,
+      })),
+      "chat_log_id",
+      "document_id",
+      "position",
+      "title",
+      "source_url",
+      "similarity",
+    )}
+  `;
+}
+
+function toCitations(rows: SearchRow[]): Citation[] {
+  return rows.map(row => ({
+    id: row.id,
+    title: documentTitle(row.metadata),
+    sourceUrl: row.metadata.source_url ? String(row.metadata.source_url) : undefined,
+    page: row.metadata.page ? Number(row.metadata.page) : undefined,
+    similarity: Number(row.similarity.toFixed(4)),
+  }));
+}
+
+export async function POST(request: Request) {
+  const started = Date.now();
+
+  let question = "";
+  let conversationId: string | undefined;
+  let userId: string | undefined;
+  try {
+    ({ question, conversationId, userId } = chatSchema.parse(await request.json()));
+  } catch {
+    return NextResponse.json({ error: "질문을 입력해 주세요." }, { status: 400 });
+  }
+
+  if (!hasOpenAIConfig()) {
+    return NextResponse.json({ error: ".env.local에 OPENAI_API_KEY를 입력해 주세요.", setupRequired: true }, { status: 503 });
+  }
+  if (!hasDatabaseConfig()) {
+    return NextResponse.json({ error: ".env.local에 DATABASE_URL을 입력해 주세요.", setupRequired: true }, { status: 503 });
+  }
+
+  const activeConversation = conversationId || randomUUID();
+  const cookieUser = request.headers.get("cookie")?.match(/(?:^|;\s*)answerbot_user=([^;]+)/)?.[1];
+  const actor = userId || cookieUser || randomUUID();
+  const setUserCookie = cookieUser ? "" : `answerbot_user=${actor}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  const followup = Boolean(conversationId);
+
+  // 질문 연발로 OpenAI 과금이 튀는 것을 막습니다.
+  const limit = await rateLimit(requesterKey(request, cookieUser), CHAT_LIMIT(), CHAT_WINDOW_SECONDS());
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `질문이 너무 빠릅니다. ${limit.retryAfter}초 후 다시 시도해 주세요.` },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
+
+  try {
+    // 이어지는 질문이면 앞선 대화를 불러와 검색과 답변에 함께 사용합니다.
+    const history = followup
+      ? (await listTurns(activeConversation, actor))
+          .filter(turn => !turn.isFallback)
+          .slice(-HISTORY_TURNS)
+          .map(turn => ({ question: turn.question, answer: turn.answer }))
+      : [];
+
+    const rows = await searchDocuments(buildSearchQuery(question, history), MATCH_COUNT);
+    // rankAndTrim 이 유사도 내림차순으로 정렬해 두므로 첫 행이 최고 유사도입니다.
+    const topSimilarity = rows.length ? rows[0].similarity : null;
+
+    /*
+     * 여기서의 판정은 "확실히 아무것도 없는" 질문에 대해 모델 호출을 아끼는 용도입니다.
+     * 코사인 값만으로 무관한 질문을 걸러낼 수는 없습니다 — 실측에서 정답 문서가 0.29,
+     * 무관한 질문이 0.32 로 구간이 겹칩니다. 그래서 최종 관련성 판단은 모델에게 맡기고
+     * (모델이 "근거가 부족합니다"로 답하면 아래에서 미답변으로 돌립니다) 이 관문은
+     * 느슨하게 둡니다.
+     */
+    const tooWeak = !rows.some(row => isStrongMatch(row, TOP_MATCH_THRESHOLD));
+
+    if (tooWeak) {
+      const questionId = await insertChatLog({
+        question,
+        answer: FALLBACK_ANSWER,
+        category: "fallback",
+        fallback: true,
+        actor,
+        conversationId: activeConversation,
+        responseMs: Date.now() - started,
+        followup,
+        citationCount: 0,
+        topSimilarity,
+      });
+      const response = NextResponse.json({
+        answer: FALLBACK_ANSWER,
+        citations: [],
+        conversationId: activeConversation,
+        questionId,
+        unanswered: true,
+      });
+      if (setUserCookie) response.headers.set("Set-Cookie", setUserCookie);
+      return response;
+    }
+
+    const citations = toCitations(rows);
+    const stream = await streamAnswer(question, citations, rows, history);
+
+    const encoder = new TextEncoder();
+    const sanitizer = createStreamSanitizer();
+    // 사용자가 중단하거나 창을 닫았을 때 로그를 두 번 쓰지 않기 위한 표시입니다.
+    let settled = false;
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        const send = (event: string, data: unknown) =>
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+
+        send("meta", { conversationId: activeConversation, citations });
+
+        try {
+          for await (const event of stream) {
+            if (event.type === "response.output_text.delta") {
+              const chunk = sanitizer.push(event.delta);
+              if (chunk) send("delta", { text: chunk });
+            } else if (event.type === "response.failed" || event.type === "response.incomplete") {
+              throw new Error("모델이 답변을 완료하지 못했습니다.");
+            }
+          }
+
+          const { text: answer, tail, replace } = sanitizer.finish();
+          if (replace) send("replace", { text: answer });
+          else if (tail) send("delta", { text: tail });
+
+          settled = true;
+
+          // 모델이 "근거가 부족합니다"로 답하면 인용을 붙이지 않고 미답변으로 넘깁니다.
+          const insufficient = isInsufficient(answer);
+          const finalAnswer = insufficient ? FALLBACK_ANSWER : answer;
+          const finalCitations = insufficient ? [] : citations;
+
+          const logId = await insertChatLog({
+            question,
+            answer: finalAnswer,
+            category: insufficient ? "fallback" : String(rows[0].metadata.category || "general"),
+            fallback: insufficient,
+            actor,
+            conversationId: activeConversation,
+            responseMs: Date.now() - started,
+            followup,
+            citationCount: finalCitations.length,
+            topSimilarity,
+          });
+
+          if (finalCitations.length) {
+            await insertCitations(logId, finalCitations);
+            await incrementReuse([...new Set(finalCitations.map(citation => citation.id))]);
+          }
+
+          send("done", {
+            questionId: logId,
+            citations: finalCitations,
+            unanswered: insufficient,
+            ...(insufficient ? { answer: FALLBACK_ANSWER } : {}),
+          });
+        } catch (error) {
+          settled = true;
+          send("error", { message: error instanceof Error ? error.message : "답변 생성에 실패했습니다." });
+        } finally {
+          controller.close();
+        }
+      },
+
+      /**
+       * 사용자가 "중단"을 누르거나 브라우저가 연결을 끊으면 호출됩니다.
+       * 모델 호출을 즉시 끊어 토큰을 더 쓰지 않게 하고,
+       * 여기까지 나온 답변은 기록으로 남겨 대화 내역이 비지 않게 합니다.
+       */
+      async cancel() {
+        stream.controller.abort();
+        if (settled) return;
+        settled = true;
+
+        const { text } = sanitizer.finish();
+        if (!text) return;
+
+        try {
+          const logId = await insertChatLog({
+            question,
+            answer: `${text}\n\n(사용자가 답변 생성을 중단했습니다.)`,
+            category: String(rows[0].metadata.category || "general"),
+            fallback: false,
+            actor,
+            conversationId: activeConversation,
+            responseMs: Date.now() - started,
+            followup,
+            citationCount: citations.length,
+            topSimilarity,
+          });
+          await insertCitations(logId, citations);
+        } catch {
+          // 중단 처리 중의 기록 실패는 사용자에게 알릴 방법이 없습니다. 조용히 넘어갑니다.
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        ...(setUserCookie ? { "Set-Cookie": setUserCookie } : {}),
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "질문을 처리하지 못했습니다." },
+      { status: 500 },
+    );
+  }
+}
