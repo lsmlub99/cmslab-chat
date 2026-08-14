@@ -153,13 +153,14 @@ export default function ChatShell() {
       // 근거를 못 찾은 경우와 설정 오류는 JSON으로 옵니다.
       if ((response.headers.get("content-type") || "").includes("application/json")) {
         const data = await response.json();
-        if (data.conversationId) rememberConversation(data.conversationId);
+        // 차단된 질문은 대화로 이어지지 않으므로 대화 번호를 기억하지 않습니다.
+        if (data.conversationId && !data.blocked) rememberConversation(data.conversationId);
         updateLast({
           content: data.answer || data.error || "질문을 처리하지 못했습니다.",
           citations: data.citations || [],
           questionId: data.questionId,
           unanswered: Boolean(data.unanswered),
-          error: !response.ok,
+          error: !response.ok || Boolean(data.blocked),
         });
         return;
       }

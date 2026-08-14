@@ -17,6 +17,7 @@ import {
   type SearchRow,
 } from "@/lib/existing-db";
 import { extractUrls } from "@/lib/rag/links";
+import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import type { Citation } from "@/lib/types";
 
@@ -138,6 +139,41 @@ export async function POST(request: Request) {
   const setUserCookie = session || cookieUser
     ? ""
     : `answerbot_user=${actor}; Path=/; Max-Age=31536000; SameSite=Lax`;
+
+  /*
+   * 욕설·비방·성적 표현은 검색과 모델 호출 전에 걸러 냅니다.
+   * 기록은 남기되 category 를 blocked 로 두어, 미답변 대기열과 지표에서 제외합니다.
+   * 지식이 없어서 못 답한 것이 아니므로 관리자가 채워야 할 문서가 아닙니다.
+   */
+  const moderation = await checkQuestion(question);
+  if (moderation.blocked) {
+    try {
+      await insertChatLog({
+        question,
+        answer: BLOCKED_MESSAGE,
+        category: "blocked",
+        fallback: false,
+        actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
+        conversationId: activeConversation,
+        responseMs: Date.now() - started,
+        followup,
+        citationCount: 0,
+        topSimilarity: null,
+      });
+    } catch {
+      // 기록 실패가 차단을 막아서는 안 됩니다.
+    }
+    const response = NextResponse.json({
+      answer: BLOCKED_MESSAGE,
+      citations: [],
+      conversationId: activeConversation,
+      blocked: true,
+    });
+    if (setUserCookie) response.headers.set("Set-Cookie", setUserCookie);
+    return response;
+  }
 
   // 질문 연발로 OpenAI 과금이 튀는 것을 막습니다.
   const limit = await rateLimit(requesterKey(request, session?.id || cookieUser), CHAT_LIMIT(), CHAT_WINDOW_SECONDS());

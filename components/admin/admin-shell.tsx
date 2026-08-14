@@ -248,6 +248,14 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
       </KpiGroup>
 
+      {t.blocked > 0 && (
+        <div className="notice">
+          부적절한 표현으로 차단된 질문이 {t.blocked}건 있습니다.
+          실제 이용이 아니므로 <b>위 지표에서는 제외</b>했습니다.
+          내용은 대화 기록에서 확인할 수 있습니다.
+        </div>
+      )}
+
       {t.anonymousQuestions > 0 && (
         <div className="notice">
           로그인 도입 전에 쌓인 질문 {t.anonymousQuestions}건이 포함돼 있습니다.

@@ -46,6 +46,8 @@ export async function GET(request: Request) {
           coalesce(avg(top_similarity) filter (where top_similarity is not null), 0)::float8 as avg_similarity
         from public.chat_logs
         where created_at >= ${from} and created_at <= ${to}
+          -- 차단된 질문은 실제 이용이 아니므로 지표에서 뺍니다.
+          and coalesce(category, '') <> 'blocked'
       `,
       sql`
         select to_char(day, 'YYYY-MM-DD') as date,
@@ -73,6 +75,8 @@ export async function GET(request: Request) {
                count(*) filter (where not coalesce(is_fallback, false))::int as answered
         from public.chat_logs
         where created_at >= ${from} and created_at <= ${to}
+          -- 차단된 질문은 실제 이용이 아니므로 지표에서 뺍니다.
+          and coalesce(category, '') <> 'blocked'
         group by 1
         order by questions desc, category
         limit 6
@@ -95,7 +99,15 @@ export async function GET(request: Request) {
     `;
 
     const pending = await sql`
-      select count(*)::int as pending from public.chat_logs where coalesce(is_fallback, false)
+      select count(*)::int as pending from public.chat_logs
+      where coalesce(is_fallback, false) and coalesce(category, '') <> 'blocked'
+    `;
+
+    // 차단된 질문은 따로 셉니다. 지표에는 넣지 않되 운영자가 흐름은 알아야 합니다.
+    const blocked = await sql`
+      select count(*)::int as blocked
+      from public.chat_logs
+      where created_at >= ${from} and created_at <= ${to} and category = 'blocked'
     `;
 
     // 누가 얼마나 쓰는지. 성과 보고에서 "사용자 수"의 근거가 되는 목록입니다.
@@ -134,6 +146,7 @@ export async function GET(request: Request) {
         satisfaction: totalFeedback ? percent(Number(feedback[0].positive), totalFeedback) : null,
         feedbackCount: totalFeedback,
         pending: Number(pending[0].pending),
+        blocked: Number(blocked[0].blocked),
         documents: Number(documents[0].documents),
         chunks: Number(documents[0].chunks),
         embedded: Number(documents[0].embedded),

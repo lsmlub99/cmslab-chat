@@ -42,6 +42,8 @@ export type DashboardTotals = {
   satisfaction: number | null;
   feedbackCount: number;
   pending: number;
+  /** 욕설·비방으로 차단된 질문 수. 지표에는 포함하지 않습니다. */
+  blocked: number;
   documents: number;
   chunks: number;
   embedded: number;
