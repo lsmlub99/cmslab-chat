@@ -1,6 +1,8 @@
 import { database } from "@/lib/database";
 import { embedQuery } from "@/lib/rag/embeddings";
 import { ftsQuery, keywordTerms } from "@/lib/rag/query";
+import { expandForEmbedding, expandTerms } from "@/lib/rag/synonyms";
+import { expandQuestion } from "@/lib/rag/expand";
 import { CANDIDATE_COUNT, CANDIDATE_THRESHOLD, MATCH_COUNT } from "@/lib/rag/config";
 
 export type ExistingDocument = {
@@ -60,12 +62,25 @@ export function isStrongMatch(row: SearchRow, threshold: number) {
  * 임베딩 호출이 실패하면 키워드 검색만으로 조용히 내려앉습니다.
  */
 export async function searchDocuments(question: string, limit = MATCH_COUNT) {
-  const sql = database();
   const terms = keywordTerms(question);
-  const embedding = await embedQuery(question).catch(() => null);
 
-  if (!embedding) return keywordOnlySearch(question, terms, limit);
+  /*
+   * 같은 뜻의 다른 낱말을 함께 검색합니다.
+   * 키워드 검색은 글자가 같아야 걸리므로 "휴가"로는 "연차" 문서를 못 찾습니다.
+   * 임베딩도 만능이 아니어서 "부의금"으로 경조사 문서를, "랩탑"으로 노트북 문서를
+   * 상위 8위 안에도 못 올렸습니다. 사전을 붙이자 둘 다 1위가 됐고 지연은 없습니다.
+   */
+  const expandedTerms = expandTerms(terms);
+  const embeddingText = expandForEmbedding(question, terms);
 
+  const embedding = await embedQuery(embeddingText).catch(() => null);
+  if (!embedding) return keywordOnlySearch(question, expandedTerms, limit);
+
+  return runSearch(embedding, question, expandedTerms, limit);
+}
+
+async function runSearch(embedding: number[], question: string, terms: string[], limit: number) {
+  const sql = database();
   const rows = (await sql`
     select * from public.match_documents_answerbot(
       ${toVector(embedding)}::vector,
@@ -77,6 +92,24 @@ export async function searchDocuments(question: string, limit = MATCH_COUNT) {
   `) as unknown as RawSearchRow[];
 
   return rankAndTrim(rows, limit);
+}
+
+/**
+ * 사전으로도 못 찾았을 때 한 번 더 시도합니다.
+ *
+ * 모델에게 동의어를 만들게 하면 사전에 없는 낱말까지 잡히지만 호출이 하나 더 붙습니다.
+ * 그래서 평소에는 쓰지 않고, 근거를 못 찾아 미답변으로 넘어가기 직전에만 씁니다.
+ * 잘 찾은 질문은 그대로 빠르고, 못 찾은 질문만 조금 더 기다립니다.
+ */
+export async function searchWithExpansion(question: string, limit = MATCH_COUNT) {
+  const expanded = await expandQuestion(question);
+  if (!expanded) return [] as SearchRow[];
+
+  const terms = expandTerms(keywordTerms(`${question} ${expanded}`));
+  const embedding = await embedQuery(`${question} ${expanded}`).catch(() => null);
+  if (!embedding) return [] as SearchRow[];
+
+  return runSearch(embedding, question, terms, limit);
 }
 
 /** 임베딩을 못 쓸 때의 대비책 — 키워드/FTS만으로 찾습니다. */

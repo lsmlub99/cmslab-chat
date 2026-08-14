@@ -8,7 +8,14 @@ import { listTurns } from "@/lib/conversations";
 import { readSession, readSessionCookie } from "@/lib/google-auth";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit, requesterKey } from "@/lib/rate-limit";
 import { MATCH_COUNT, TOP_MATCH_THRESHOLD } from "@/lib/rag/config";
-import { documentTitle, incrementReuse, isStrongMatch, searchDocuments, type SearchRow } from "@/lib/existing-db";
+import {
+  documentTitle,
+  incrementReuse,
+  isStrongMatch,
+  searchDocuments,
+  searchWithExpansion,
+  type SearchRow,
+} from "@/lib/existing-db";
 import { extractUrls } from "@/lib/rag/links";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import type { Citation } from "@/lib/types";
@@ -150,7 +157,18 @@ export async function POST(request: Request) {
           .map(turn => ({ question: turn.question, answer: turn.answer }))
       : [];
 
-    const rows = await searchDocuments(buildSearchQuery(question, history), MATCH_COUNT);
+    const searchQuery = buildSearchQuery(question, history);
+    let rows = await searchDocuments(searchQuery, MATCH_COUNT);
+
+    /*
+     * 근거를 못 찾았으면 포기하기 전에 한 번 더 시도합니다.
+     * 모델이 동의어를 넓혀 주면 사전에 없던 낱말도 걸립니다.
+     * 잘 찾은 질문에는 이 경로가 실행되지 않으므로 평소 속도는 그대로입니다.
+     */
+    if (!rows.some(row => isStrongMatch(row, TOP_MATCH_THRESHOLD))) {
+      const retried = await searchWithExpansion(searchQuery, MATCH_COUNT);
+      if (retried.some(row => isStrongMatch(row, TOP_MATCH_THRESHOLD))) rows = retried;
+    }
     // rankAndTrim 이 유사도 내림차순으로 정렬해 두므로 첫 행이 최고 유사도입니다.
     const topSimilarity = rows.length ? rows[0].similarity : null;
 
