@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import { feedbackSchema } from "@/lib/validation";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
         note = excluded.note,
         created_at = now()
     `;
+
+    // 사용 기록: 어떤 답변에 대한 것인지나 남긴 메모는 보내지 않습니다.
+    await logUserAction({ action: "submit_feedback", success: true }).catch(() => undefined);
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

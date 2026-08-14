@@ -18,6 +18,9 @@ import {
 } from "@/lib/existing-db";
 import { extractUrls } from "@/lib/rag/links";
 import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
+import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
+import { errorCodeOf } from "@/lib/rag/ai-error";
+import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import type { Citation } from "@/lib/types";
 
@@ -259,6 +262,25 @@ export async function POST(request: Request) {
     // 사용자가 중단하거나 창을 닫았을 때 로그를 두 번 쓰지 않기 위한 표시입니다.
     let settled = false;
 
+    /*
+     * 사용 기록(ai_call).
+     * 답변 생성은 스트리밍이라 create() 가 곧바로 돌아옵니다. 실제 성공 여부와
+     * 걸린 시간은 스트림을 다 읽어야 알 수 있으므로, 여기서 한 번만 기록합니다.
+     */
+    const aiStarted = Date.now();
+    let aiLogged = false;
+    const recordAiCall = async (success: boolean, errorCode?: string) => {
+      if (aiLogged) return;
+      aiLogged = true;
+      await logAiCall({
+        provider: "openai",
+        model: chatModel(),
+        success,
+        latencyMs: Date.now() - aiStarted,
+        errorCode,
+      }).catch(() => undefined);
+    };
+
     const readable = new ReadableStream({
       async start(controller) {
         const send = (event: string, data: unknown) =>
@@ -275,6 +297,8 @@ export async function POST(request: Request) {
               throw new Error("모델이 답변을 완료하지 못했습니다.");
             }
           }
+
+          await recordAiCall(true);
 
           const { text: answer, tail, replace } = sanitizer.finish();
 
@@ -319,6 +343,13 @@ export async function POST(request: Request) {
             await incrementReuse([...new Set(finalCitations.map(citation => citation.id))]);
           }
 
+          // 사용 기록: 질문이 실제로 처리된 시점입니다. 질문 내용은 보내지 않습니다.
+          await logUserAction({
+            action: "ask_question",
+            success: !insufficient,
+            latencyMs: Date.now() - started,
+          }).catch(() => undefined);
+
           send("done", {
             questionId: logId,
             citations: finalCitations,
@@ -329,6 +360,8 @@ export async function POST(request: Request) {
           });
         } catch (error) {
           settled = true;
+          // 실패한 모델 호출도 사용 기록에 남깁니다.
+          await recordAiCall(false, errorCodeOf(error));
           send("error", { message: error instanceof Error ? error.message : "답변 생성에 실패했습니다." });
         } finally {
           controller.close();
@@ -342,6 +375,8 @@ export async function POST(request: Request) {
        */
       async cancel() {
         stream.controller.abort();
+        // 중단된 호출도 실제로 일어난 모델 호출이므로 기록에 남깁니다.
+        await recordAiCall(false, "aborted");
         if (settled) return;
         settled = true;
 

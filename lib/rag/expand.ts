@@ -1,4 +1,9 @@
+// OpenAI 키와 사용 기록 전송을 다루므로 브라우저로 넘어가면 안 됩니다.
+import "server-only";
+
 import { chatModel, openai } from "@/lib/openai";
+import { logAiCall } from "@/lib/server/telemetry.server";
+import { errorCodeOf } from "@/lib/rag/ai-error";
 
 /**
  * 모델로 질문의 동의어를 넓힙니다.
@@ -11,9 +16,16 @@ import { chatModel, openai } from "@/lib/openai";
  * 다만 호출이 하나 더 붙으므로(약 0.5초) 매 질문마다 쓰지는 않습니다.
  */
 export async function expandQuestion(question: string): Promise<string> {
+  const model = chatModel();
+  const started = Date.now();
+  let succeeded = false;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  let errorCode: string | undefined;
+
   try {
     const response = await openai().responses.create({
-      model: chatModel(),
+      model,
       instructions: `사내 지식 검색용으로 질문을 확장합니다.
 질문에 담긴 개념의 한국어 동의어와 사내에서 쓸 법한 정식 명칭을 나열하세요.
 설명 없이 검색어만 공백으로 구분해 한 줄로 출력합니다. 최대 12개 낱말.
@@ -22,12 +34,28 @@ export async function expandQuestion(question: string): Promise<string> {
       max_output_tokens: 100,
     });
 
+    succeeded = true;
+    inputTokens = response.usage?.input_tokens;
+    outputTokens = response.usage?.output_tokens;
+
     const text = response.output_text?.trim() ?? "";
     // 모델이 문장으로 답하면 검색어로 쓰기에 부적합하므로 버립니다.
     if (!text || text.length > 200) return "";
     return text;
-  } catch {
+  } catch (error) {
     // 확장은 어디까지나 보조 수단입니다. 실패해도 검색 자체는 이미 끝나 있습니다.
+    errorCode = errorCodeOf(error);
     return "";
+  } finally {
+    // 사용 기록: 실패한 호출도 남깁니다.
+    await logAiCall({
+      provider: "openai",
+      model,
+      success: succeeded,
+      latencyMs: Date.now() - started,
+      inputTokens,
+      outputTokens,
+      errorCode,
+    }).catch(() => undefined);
   }
 }

@@ -3,6 +3,7 @@ import { database, hasDatabaseConfig } from "@/lib/database";
 import { defaultSettings, getSettings } from "@/lib/settings";
 import { currentUserId, listConversations } from "@/lib/conversations";
 import { readSession, readSessionCookie } from "@/lib/google-auth";
+import { logAppOpen } from "@/lib/server/telemetry.server";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -27,6 +28,17 @@ const FALLBACK_SUGGESTIONS = [
  * 지어낸 예시보다 실제로 답이 나오는 질문을 보여 주는 편이 낫습니다.
  */
 export async function GET(request: Request) {
+  /*
+   * 앱을 연 것으로 기록합니다.
+   *
+   * 이 엔드포인트는 화면이 처음 뜰 때뿐 아니라 질문을 보낼 때마다 사이드바를
+   * 갱신하려고 다시 불립니다. 그대로 두면 앱 실행 횟수가 부풀려지므로,
+   * 브라우저가 세션당 한 번만 open=1 을 붙여 보내고 그때만 기록합니다.
+   */
+  if (new URL(request.url).searchParams.get("open") === "1") {
+    await logAppOpen({ source: "web" }).catch(() => undefined);
+  }
+
   if (!hasDatabaseConfig()) {
     return NextResponse.json({ settings: defaultSettings(), user: null, conversations: [], suggestions: FALLBACK_SUGGESTIONS });
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ingestKnowledge } from "@/lib/rag/ingest";
 import { database } from "@/lib/database";
 import { answerQuestionSchema } from "@/lib/validation";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -47,6 +48,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       set bot_answer = ${parsed.answer}, is_fallback = false, category = ${category}
       where id = ${id}
     `;
+
+    // 사용 기록: 질문이나 답변 내용은 보내지 않습니다.
+    await logUserAction({ action: "answer_question", success: true }).catch(() => undefined);
 
     return NextResponse.json(saved);
   } catch (error) {

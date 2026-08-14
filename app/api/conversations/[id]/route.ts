@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasDatabaseConfig } from "@/lib/database";
 import { currentUserId, deleteConversation, listTurns } from "@/lib/conversations";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -44,6 +45,7 @@ export async function DELETE(request: Request, context: Context) {
   try {
     const removed = await deleteConversation(id, userId);
     if (!removed) return NextResponse.json({ error: "대화를 찾지 못했습니다." }, { status: 404 });
+    await logUserAction({ action: "delete_conversation", success: true }).catch(() => undefined);
     return NextResponse.json({ ok: true, removed });
   } catch (error) {
     return NextResponse.json(

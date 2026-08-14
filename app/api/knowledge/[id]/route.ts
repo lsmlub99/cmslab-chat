@@ -3,6 +3,7 @@ import { deleteBySourceHash, deleteDocumentGroup } from "@/lib/existing-db";
 import { ingestKnowledge } from "@/lib/rag/ingest";
 import { database } from "@/lib/database";
 import { editKnowledgeSchema } from "@/lib/validation";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 export const runtime = "nodejs";
 // Vercel 무료(Hobby) 플랜 상한이 60초입니다.
@@ -54,6 +55,7 @@ export async function DELETE(_: Request, context: Context) {
     const id = Number((await context.params).id);
     if (!Number.isInteger(id)) return NextResponse.json({ error: "잘못된 문서 번호입니다." }, { status: 400 });
     const removed = await deleteDocumentGroup(id);
+    await logUserAction({ action: "delete_document", success: true }).catch(() => undefined);
     return NextResponse.json({ ok: true, removed });
   } catch (error) {
     return NextResponse.json(
@@ -94,6 +96,8 @@ export async function PATCH(request: Request, context: Context) {
 
     if (oldHash && oldHash !== saved.document.source_hash) await deleteBySourceHash(oldHash);
     else if (!oldHash) await deleteDocumentGroup(id).catch(() => undefined);
+
+    await logUserAction({ action: "update_document", success: true }).catch(() => undefined);
 
     return NextResponse.json(saved);
   } catch (error) {

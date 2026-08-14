@@ -29,6 +29,8 @@ type BootstrapData = {
 
 /** 마지막으로 보던 대화를 기억해 두었다가 새로고침 후 복원합니다. */
 const LAST_CONVERSATION_KEY = "answerbot:last-conversation";
+/** 사용 기록의 "앱 실행"을 브라우저 세션당 한 번만 세기 위한 표시입니다. */
+const APP_OPEN_KEY = "answerbot:app-open";
 
 export default function ChatShell() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -63,7 +65,22 @@ export default function ChatShell() {
   const welcome = settings?.welcome_message || "안녕하세요. 팀 지식에서 근거를 찾아 답해드릴게요.";
 
   const loadSidebar = useCallback(async () => {
-    const data = await fetchJson<BootstrapData>("/api/bootstrap", 2);
+    /*
+     * 이 호출은 질문을 보낼 때마다 사이드바를 갱신하려고 반복됩니다.
+     * 사용 기록의 "앱 실행"은 브라우저 세션당 한 번만 세야 하므로,
+     * 처음 한 번에만 open=1 을 붙입니다.
+     */
+    let openFlag = "";
+    try {
+      if (!window.sessionStorage.getItem(APP_OPEN_KEY)) {
+        window.sessionStorage.setItem(APP_OPEN_KEY, "1");
+        openFlag = "?open=1";
+      }
+    } catch {
+      // 사생활 보호 모드 등에서 sessionStorage 가 막히면 그냥 기록하지 않습니다.
+    }
+
+    const data = await fetchJson<BootstrapData>(`/api/bootstrap${openFlag}`, 2);
     if (!data) {
       setLoadFailed(true);
       return;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { textKnowledgeSchema } from "@/lib/validation";
 import { ingestKnowledge } from "@/lib/rag/ingest";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,6 +9,7 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     const parsed = textKnowledgeSchema.parse(await request.json());
+    const started = Date.now();
     const result = await ingestKnowledge({
       title: parsed.title,
       category: parsed.category,
@@ -16,6 +18,11 @@ export async function POST(request: Request) {
       sourceLabel: parsed.sourceLabel,
       sourceUrl: parsed.sourceUrl || undefined,
     });
+
+    // 사용 기록: 제목이나 본문은 보내지 않습니다.
+    await logUserAction({ action: "create_document", success: true, latencyMs: Date.now() - started })
+      .catch(() => undefined);
+
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: message(error) }, { status: 400 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ingestKnowledge } from "@/lib/rag/ingest";
+import { logUserAction } from "@/lib/server/telemetry.server";
 
 export const runtime = "nodejs";
 // Vercel 무료(Hobby) 플랜의 함수 실행 상한이 60초입니다. Pro 라면 300까지 올릴 수 있습니다.
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "PDF, DOCX, TXT, MD만 지원합니다." }, { status: 400 });
     }
 
+    const started = Date.now();
     const result = await ingestKnowledge({
       title: text(form.get("title")) || file.name,
       category: text(form.get("category")) || "일반",
@@ -38,6 +40,10 @@ export async function POST(request: Request) {
       // 일괄 적재 스크립트가 기존 문서를 갱신할 때 씁니다.
       replace: text(form.get("replace")) === "true",
     });
+
+    // 사용 기록: 파일명이나 문서 내용은 보내지 않습니다.
+    await logUserAction({ action: "upload_document", success: true, latencyMs: Date.now() - started })
+      .catch(() => undefined);
 
     return NextResponse.json(result);
   } catch (error) {
