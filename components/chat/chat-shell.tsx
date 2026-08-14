@@ -1,7 +1,8 @@
 "use client";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronRight, ExternalLink, MessageSquarePlus, Settings2, Square, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
-import type { Citation, ConversationSummary, ConversationTurn, UnansweredQuestion } from "@/lib/types";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Copy, ExternalLink, MessageSquarePlus, Settings2, Square, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import type { Citation, ConversationSummary, ConversationTurn } from "@/lib/types";
+import MessageText from "@/components/chat/message-text";
 
 type Message = {
   id: string;
@@ -10,30 +11,11 @@ type Message = {
   citations?: Citation[];
   questionId?: number;
   unanswered?: boolean;
+  error?: boolean;
 };
 
 type Settings = { bot_name: string; team_name: string; welcome_message: string };
-
-type ChatStats = {
-  questions: number;
-  followups: number;
-  answeredRate: number;
-  unansweredRate: number;
-  reuse: number;
-  pending: number;
-  documents: number;
-  chunks: number;
-};
-
-type Topic = { category: string; questions: number; answered: number };
-
-type BootstrapData = {
-  settings: Settings;
-  stats: ChatStats | null;
-  topics: Topic[];
-  unanswered: UnansweredQuestion[];
-  conversations: ConversationSummary[];
-};
+type BootstrapData = { settings: Settings; conversations: ConversationSummary[] };
 
 /** 마지막으로 보던 대화를 기억해 두었다가 새로고침 후 복원합니다. */
 const LAST_CONVERSATION_KEY = "answerbot:last-conversation";
@@ -47,35 +29,25 @@ export default function ChatShell() {
   const [restoring, setRestoring] = useState(true);
   const [feedback, setFeedback] = useState<Record<number, string>>({});
   const [settings, setSettings] = useState<Settings>();
-  const [stats, setStats] = useState<{ totals: ChatStats; topics: Topic[] }>();
-  const [pending, setPending] = useState<UnansweredQuestion[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
+
   const messagesRef = useRef<HTMLDivElement>(null);
-  // 답변 중단용. 요청을 끊으면 서버가 모델 호출도 함께 끊습니다.
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController>(null);
 
   const botName = settings?.bot_name || "답봇";
   const welcome = settings?.welcome_message || "안녕하세요. 팀 지식에서 근거를 찾아 답해드릴게요.";
 
-  const greeting = useMemo<Message>(
-    () => ({
-      id: "welcome",
-      role: "assistant",
-      content: `${welcome}\n복리후생, 인사행정, IT 지원처럼 업무와 관련된 질문을 입력해 보세요.`,
-    }),
-    [welcome],
-  );
-
   const suggestions = useMemo(
-    () => ["연차 휴가는 어떻게 신청하나요?", "경조사 지원금 신청 방법 알려줘", "노트북이나 계정 지원은 어디에 요청하나요?"],
+    () => [
+      "연차 휴가는 어떻게 신청하나요?",
+      "경조사 지원금 얼마 나와요?",
+      "노트북이 고장났는데 어디에 요청하나요?",
+      "재직증명서는 어디서 발급받나요?",
+    ],
     [],
   );
 
-  /**
-   * 첫 화면에 필요한 것을 한 번에 받아옵니다.
-   * 예전에는 API 4개를 동시에 호출했는데, 서버리스에서는 잠들어 있던 함수 4개를
-   * 한꺼번에 깨우는 셈이라 첫 접속이 매우 느리거나 시간 초과로 실패했습니다.
-   */
   const loadSidebar = useCallback(async () => {
     const data = await fetchJson<BootstrapData>("/api/bootstrap", 2);
     if (!data) {
@@ -84,8 +56,6 @@ export default function ChatShell() {
     }
     setLoadFailed(false);
     if (data.settings) setSettings(data.settings);
-    if (data.stats) setStats({ totals: data.stats, topics: data.topics ?? [] });
-    if (Array.isArray(data.unanswered)) setPending(data.unanswered);
     if (Array.isArray(data.conversations)) setConversations(data.conversations);
   }, []);
 
@@ -96,7 +66,6 @@ export default function ChatShell() {
       window.localStorage.removeItem(LAST_CONVERSATION_KEY);
       return false;
     }
-
     setMessages(
       data.turns.flatMap(turn => [
         { id: `q-${turn.id}`, role: "user" as const, content: turn.question },
@@ -117,12 +86,8 @@ export default function ChatShell() {
 
   useEffect(() => {
     void (async () => {
-      // 지난 대화 복원과 첫 화면 데이터를 함께 받아옵니다.
       const last = window.localStorage.getItem(LAST_CONVERSATION_KEY);
-      await Promise.all([
-        last ? openConversation(last) : Promise.resolve(false),
-        loadSidebar(),
-      ]);
+      await Promise.all([last ? openConversation(last) : Promise.resolve(false), loadSidebar()]);
       setRestoring(false);
     })();
   }, [loadSidebar, openConversation]);
@@ -150,6 +115,8 @@ export default function ChatShell() {
     if (!value || loading) return;
 
     setQuestion("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
+
     setMessages(current => [
       ...current,
       { id: crypto.randomUUID(), role: "user", content: value },
@@ -177,6 +144,7 @@ export default function ChatShell() {
           citations: data.citations || [],
           questionId: data.questionId,
           unanswered: Boolean(data.unanswered),
+          error: !response.ok,
         });
         return;
       }
@@ -198,22 +166,21 @@ export default function ChatShell() {
       // 중단은 오류가 아닙니다. 여기까지 받은 답변을 그대로 두고 표시만 덧붙입니다.
       if (error instanceof DOMException && error.name === "AbortError") {
         updateLast(message => ({
-          content: message.content
-            ? `${message.content}\n\n(답변을 중단했습니다.)`
-            : "답변을 중단했습니다.",
+          content: message.content ? `${message.content}\n\n(답변을 중단했습니다.)` : "답변을 중단했습니다.",
         }));
       } else {
-        updateLast({ content: error instanceof Error ? error.message : "네트워크 오류가 발생했습니다.", citations: [] });
+        updateLast({
+          content: error instanceof Error ? error.message : "네트워크 오류가 발생했습니다.",
+          citations: [],
+          error: true,
+        });
       }
     } finally {
       abortRef.current = null;
       setLoading(false);
+      inputRef.current?.focus();
       void loadSidebar();
     }
-  }
-
-  function stop() {
-    abortRef.current?.abort();
   }
 
   function handlePacket(packet: string) {
@@ -228,12 +195,8 @@ export default function ChatShell() {
       if (typeof data.conversationId === "string") rememberConversation(data.conversationId);
       updateLast({ citations: (data.citations as Citation[]) || [] });
     }
-    if (event === "delta") {
-      updateLast(message => ({ content: message.content + String(data.text ?? "") }));
-    }
-    if (event === "replace") {
-      updateLast({ content: String(data.text ?? "") });
-    }
+    if (event === "delta") updateLast(message => ({ content: message.content + String(data.text ?? "") }));
+    if (event === "replace") updateLast({ content: String(data.text ?? "") });
     if (event === "done") {
       updateLast({
         questionId: data.questionId as number,
@@ -243,8 +206,12 @@ export default function ChatShell() {
       });
     }
     if (event === "error") {
-      updateLast({ content: String(data.message ?? "답변 생성에 실패했습니다."), citations: [] });
+      updateLast({ content: String(data.message ?? "답변 생성에 실패했습니다."), citations: [], error: true });
     }
+  }
+
+  function stop() {
+    abortRef.current?.abort();
   }
 
   function newChat() {
@@ -252,6 +219,7 @@ export default function ChatShell() {
     setConversationId(undefined);
     setFeedback({});
     window.localStorage.removeItem(LAST_CONVERSATION_KEY);
+    inputRef.current?.focus();
   }
 
   async function removeConversation(id: string) {
@@ -270,201 +238,197 @@ export default function ChatShell() {
     }).catch(() => undefined);
   }
 
-  const totals = stats?.totals;
-  const shown = messages.length ? messages : [greeting];
+  /** Enter 로 보내고 Shift+Enter 로 줄바꿈합니다. 입력창은 내용에 맞춰 늘어납니다. */
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void submit();
+    }
+  }
+
+  function autoGrow(element: HTMLTextAreaElement) {
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }
+
+  const empty = messages.length === 0;
 
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand">{botName}<small>반복 질문 지식베이스</small></div>
-        <div className="side-kicker">TEAM CHAT</div>
-        <nav className="nav">
-          <button className="active"><Bot size={16}/> 질문 답변</button>
-          <button onClick={newChat}><MessageSquarePlus size={16}/> 새 대화</button>
-          <button onClick={() => { location.href = "/admin"; }}><Settings2 size={16}/> 관리자 페이지</button>
-        </nav>
+        <div className="brand">{botName}<small>{settings?.team_name || "팀 지식 도우미"}</small></div>
 
-        {conversations.length > 0 && (
-          <div className="history">
-            <div className="side-kicker">지난 대화</div>
-            {conversations.map(item => (
+        <button className="new-chat" onClick={newChat}>
+          <MessageSquarePlus size={15}/> 새 대화
+        </button>
+
+        <div className="side-kicker">지난 대화</div>
+        <div className="history">
+          {conversations.length ? (
+            conversations.map(item => (
               <div className={`history-item ${item.id === conversationId ? "active" : ""}`} key={item.id}>
                 <button className="history-open" onClick={() => openConversation(item.id)} title={item.title}>
                   <span className="history-title">{item.title}</span>
-                  <span className="history-meta">
-                    {formatWhen(item.lastMessageAt)} · {item.turns}턴{item.hasUnanswered ? " · 미답변" : ""}
-                  </span>
+                  <span className="history-meta">{formatWhen(item.lastMessageAt)} · {item.turns}개 질문</span>
                 </button>
                 <button className="history-delete" onClick={() => removeConversation(item.id)} aria-label="대화 삭제">
                   <Trash2 size={12}/>
                 </button>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          ) : (
+            <div className="history-empty">아직 대화가 없습니다.</div>
+          )}
+        </div>
 
-        <div className="side-foot">팀 지식이 쌓일수록<br/>답변은 더 빨라집니다.</div>
+        <button className="side-admin" onClick={() => { location.href = "/admin"; }}>
+          <Settings2 size={13}/> 관리자
+        </button>
       </aside>
 
-      <main className="shell">
-        <header className="top">
+      <main className="chat-main">
+        <header className="chat-top">
           <div>
-            <div className="eyebrow">TEAM KNOWLEDGE BASE</div>
-            <h1 className="title">무엇이든 물어보세요</h1>
+            <h1 className="chat-title">{botName}</h1>
+            <div className="hint">등록된 팀 지식에서 근거를 찾아 답합니다.</div>
           </div>
-          <div className="person">
-            <span>{totals ? `등록 지식 ${totals.documents}건 · ${totals.chunks}개 청크` : "지식 현황 확인 중"}</span>
-            <span className="avatar">{botName.slice(0, 1)}</span>
-          </div>
+          <span className="status">● 연결됨</span>
         </header>
 
         {loadFailed && (
           <div className="notice">
-            현황 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.
+            연결이 불안정합니다. 질문은 계속 하실 수 있습니다.
             <button className="btn soft" style={{ marginLeft: 10 }} onClick={() => { setLoadFailed(false); void loadSidebar(); }}>
               다시 시도
             </button>
           </div>
         )}
 
-        <section className="stats">
-          <Stat label="최근 7일 질문" value={totals ? `${totals.questions}건` : "—"} note={totals ? `재질문 ${totals.followups}건` : "집계 준비 중"}/>
-          <Stat label="답변 완료율" value={totals ? `${totals.answeredRate}%` : "—"} note={totals ? `미답변 ${totals.unansweredRate}%` : "집계 준비 중"}/>
-          <Stat label="지식 재사용" value={totals ? `${totals.reuse}회` : "—"} note="답변에 인용된 누적 횟수"/>
-          <Stat label="미답변 대기" value={totals ? `${totals.pending}건` : "—"} note={totals?.pending ? "관리자 확인 필요" : "대기 중인 질문 없음"}/>
-        </section>
-
-        <div className="chat-grid">
-          <section className="card chat-card">
-            <div className="card-head">
-              <div>
-                <h2>{botName}과 대화하기</h2>
-                <div className="hint">
-                  {conversationId ? "이어지는 질문은 앞선 대화를 참고해 답변합니다." : "등록된 팀 지식을 검색하고 근거와 함께 답변합니다."}
-                </div>
-              </div>
-              <span className="status">● 연결됨</span>
-            </div>
-
-            <div className="messages" ref={messagesRef}>
-              {restoring ? (
-                <div className="hint" style={{ padding: 16 }}>지난 대화를 불러오는 중입니다…</div>
-              ) : shown.map(message => (
-                <article className={`message ${message.role === "user" ? "me" : ""}`} key={message.id}>
-                  {message.role === "assistant" && <span className="bot">봇</span>}
-                  <div className="bubble">
-                    {message.content
-                      ? <span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
-                      : <span className="hint">답변을 찾고 있습니다…</span>}
-
-                    {Boolean(message.citations?.length) && (
-                      <div className="citations">
-                        {message.citations?.map((citation, index) => (
-                          citation.sourceUrl ? (
-                            <a className="citation" key={`${citation.id}-${index}`} href={citation.sourceUrl} target="_blank" rel="noreferrer">
-                              <ExternalLink size={11}/> 출처 {index + 1}: {citation.title}
-                              {citation.page ? ` · ${citation.page}쪽` : ""}
-                            </a>
-                          ) : (
-                            <span className="citation" key={`${citation.id}-${index}`}>
-                              출처 {index + 1}: {citation.title}{citation.page ? ` · ${citation.page}쪽` : ""}
-                            </span>
-                          )
-                        ))}
-                      </div>
-                    )}
-
-                    {message.questionId && !message.unanswered && (
-                      <div className="citations">
-                        <button className="citation" onClick={() => rate(message.questionId!, "positive")}>
-                          <ThumbsUp size={12}/> {feedback[message.questionId] === "positive" ? "도움이 됐어요" : "도움이 됐나요?"}
-                        </button>
-                        <button className="citation" onClick={() => rate(message.questionId!, "negative")}>
-                          <ThumbsDown size={12}/> {feedback[message.questionId] === "negative" ? "개선 요청됨" : "아쉬워요"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-
-            <div className="suggestions">
-              {suggestions.map(item => (
-                <button className="btn soft" key={item} onClick={() => setQuestion(item)}>{item}<ChevronRight size={14}/></button>
-              ))}
-            </div>
-
-            <form className="composer" onSubmit={submit}>
-              <input
-                value={question}
-                onChange={event => setQuestion(event.target.value)}
-                placeholder="업무 질문을 입력해 주세요"
-                aria-label="질문 입력"
-                disabled={loading}
-              />
-              {loading ? (
-                <button type="button" className="btn soft" onClick={stop}>
-                  <Square size={11}/> 중단
-                </button>
-              ) : (
-                <button className="btn primary" disabled={!question.trim()}>질문 보내기</button>
-              )}
-            </form>
-          </section>
-
-          <aside className="card">
-            <div className="card-head">
-              <div>
-                <h2>최근 미답변 질문</h2>
-                <div className="hint">관리자가 확인하고 지식으로 등록합니다.</div>
-              </div>
-              <span className={`badge ${pending.length ? "red" : ""}`}>{pending.length}건</span>
-            </div>
-
-            {pending.length ? (
-              <div className="list">
-                {pending.map(item => (
-                  <div className="question unanswered" key={item.id}>
-                    <div className="question-title">{item.question}</div>
-                    <div className="meta">{formatWhen(item.created_at)} · {item.user_key || "익명"}</div>
-                    <span className="badge red">미답변</span>
-                  </div>
+        <div className="messages" ref={messagesRef}>
+          {restoring ? (
+            <div className="chat-empty"><span className="hint">불러오는 중입니다…</span></div>
+          ) : empty ? (
+            <div className="chat-empty">
+              <div className="welcome-mark">{botName.slice(0, 1)}</div>
+              <h2 className="welcome-title">{welcome}</h2>
+              <p className="hint">복리후생, 인사행정, IT 지원처럼 업무와 관련된 질문을 입력해 보세요.</p>
+              <div className="suggestions">
+                {suggestions.map(item => (
+                  <button className="suggestion" key={item} onClick={() => { setQuestion(item); inputRef.current?.focus(); }}>
+                    {item}
+                  </button>
                 ))}
               </div>
-            ) : (
-              <div className="empty">아직 미답변 질문이 없습니다.</div>
-            )}
-
-            <div className="topic">
-              <div className="card-head">
-                <div>
-                  <h2>자주 묻는 주제</h2>
-                  <div className="hint">최근 7일</div>
-                </div>
-              </div>
-              {stats?.topics?.length ? (
-                <div>
-                  {stats.topics.map(topic => (
-                    <div className="topic-row" key={topic.category}>
-                      <b>{topic.category}</b>
-                      <span>{topic.questions}건 · 답변 {topic.answered}건</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty">최근 7일 질문 기록이 없습니다.</div>
-              )}
             </div>
-          </aside>
+          ) : (
+            messages.map((message, index) => (
+              <article className={`message ${message.role === "user" ? "me" : ""}`} key={message.id}>
+                {message.role === "assistant" && <span className="bot">{botName.slice(0, 1)}</span>}
+                <div className={`bubble ${message.error ? "bubble-error" : ""}`}>
+                  {message.content ? (
+                    <MessageText text={message.content}/>
+                  ) : loading && index === messages.length - 1 ? (
+                    <Thinking/>
+                  ) : (
+                    <span className="hint">…</span>
+                  )}
+
+                  {message.unanswered && (
+                    <div className="handoff">
+                      관리자에게 전달했습니다. 지식으로 등록되면 다음부터 바로 답변합니다.
+                    </div>
+                  )}
+
+                  {Boolean(message.citations?.length) && (
+                    <div className="citations">
+                      {message.citations?.map((citation, position) => (
+                        citation.sourceUrl ? (
+                          <a className="citation" key={`${citation.id}-${position}`} href={citation.sourceUrl} target="_blank" rel="noreferrer">
+                            <ExternalLink size={11}/> {citation.title}
+                          </a>
+                        ) : (
+                          <span className="citation" key={`${citation.id}-${position}`}>{citation.title}</span>
+                        )
+                      ))}
+                    </div>
+                  )}
+
+                  {message.role === "assistant" && message.content && !message.error && (
+                    <div className="message-actions">
+                      <CopyButton text={message.content}/>
+                      {message.questionId && !message.unanswered && (
+                        <>
+                          <button
+                            className={`action ${feedback[message.questionId] === "positive" ? "on" : ""}`}
+                            onClick={() => rate(message.questionId!, "positive")}
+                            aria-label="도움이 됐어요"
+                          >
+                            <ThumbsUp size={13}/>
+                          </button>
+                          <button
+                            className={`action ${feedback[message.questionId] === "negative" ? "on" : ""}`}
+                            onClick={() => rate(message.questionId!, "negative")}
+                            aria-label="아쉬워요"
+                          >
+                            <ThumbsDown size={13}/>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
         </div>
+
+        <form className="composer" onSubmit={submit}>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={question}
+            onChange={event => { setQuestion(event.target.value); autoGrow(event.target); }}
+            onKeyDown={onKeyDown}
+            placeholder="업무 질문을 입력해 주세요.  (Enter 전송 · Shift+Enter 줄바꿈)"
+            aria-label="질문 입력"
+          />
+          {loading ? (
+            <button type="button" className="btn soft" onClick={stop}><Square size={11}/> 중단</button>
+          ) : (
+            <button className="btn primary" disabled={!question.trim()}>보내기</button>
+          )}
+        </form>
       </main>
     </div>
   );
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note: string }) {
-  return <div className="stat"><label>{label}</label><strong>{value}</strong><span className="up">{note}</span></div>;
+function Thinking() {
+  return (
+    <span className="thinking" aria-label="답변 생성 중">
+      <i/><i/><i/>
+    </span>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // 클립보드 권한이 없는 브라우저 — 조용히 넘어갑니다.
+    }
+  }
+
+  return (
+    <button className={`action ${copied ? "on" : ""}`} onClick={copy} aria-label="답변 복사">
+      {copied ? <Check size={13}/> : <Copy size={13}/>}
+    </button>
+  );
 }
 
 /**

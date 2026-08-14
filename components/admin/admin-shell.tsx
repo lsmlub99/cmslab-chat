@@ -198,6 +198,15 @@ export default function AdminShell() {
 
 /* ── 성과 대시보드 ─────────────────────────────────────────────────────────── */
 
+/**
+ * KPI 대시보드.
+ *
+ * 기획서의 지표를 세 묶음으로 나눠 보여 줍니다.
+ *  · 이용 현황 — 얼마나 쓰이는가
+ *  · 답변 품질 — 제대로 답하고 있는가
+ *  · 지식 운영 — 지식이 쌓이고 재사용되는가
+ * 사용자 채팅 화면에 있던 수치는 전부 이쪽으로 옮겼습니다.
+ */
 function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?: string, to?: string) => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
@@ -208,31 +217,56 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
 
   const t = data.totals;
   const peak = Math.max(1, ...data.series.map(day => day.questions));
+  const preset = (days: number) => {
+    const start = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    setFrom(start); setTo(today); onRefresh(start, today);
+  };
 
   return (
     <>
-      <section className="stats">
-        <Stat label="질문 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건`}/>
-        <Stat label="사용자 수" value={`${t.users}명`} note="기간 내 활동 사용자"/>
-        <Stat label="답변 완료율" value={`${t.answeredRate}%`} note={`미답변 ${t.unansweredRate}%`}/>
-        <Stat label="지식 재사용" value={`${t.reuse}회`} note="답변에 인용된 누적 횟수"/>
-      </section>
-
       <section className="card">
         <div className="card-head">
           <div>
-            <h2>질문·답변 추이</h2>
-            <div className="hint">선택한 기간의 chat_logs를 집계합니다.</div>
+            <h2>조회 기간</h2>
+            <div className="hint">모든 수치는 이 기간의 실제 기록을 집계한 값입니다.</div>
           </div>
-          <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+          <div className="range-picker">
+            <button className="btn soft" onClick={() => preset(7)}>최근 7일</button>
+            <button className="btn soft" onClick={() => preset(30)}>최근 30일</button>
             <input type="date" value={from} max={to} onChange={event => setFrom(event.target.value)}/>
             <span className="hint">~</span>
             <input type="date" value={to} min={from} onChange={event => setTo(event.target.value)}/>
-            <button className="btn soft" onClick={() => onRefresh(from, to)}>조회</button>
+            <button className="btn primary" onClick={() => onRefresh(from, to)}>조회</button>
           </div>
         </div>
+      </section>
 
-        {data.series.length ? (
+      <KpiGroup title="이용 현황" hint="챗봇이 실제로 쓰이고 있는지">
+        <Kpi label="질문 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건`}/>
+        <Kpi label="사용자 수" value={`${t.users}명`} note="기간 내 질문한 사람"/>
+        <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질문 수 ÷ 사용자 수"/>
+        <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
+      </KpiGroup>
+
+      <KpiGroup title="답변 품질" hint="제대로 답하고 있는지">
+        <Kpi label="답변 완료율" value={`${t.answeredRate}%`} note={`미답변 ${t.unansweredRate}%`}/>
+        <Kpi label="출처 포함률" value={`${t.citationRate}%`} note="근거를 붙여 답한 비율"/>
+        <Kpi label="만족도" value={t.satisfaction === null ? "응답 없음" : `${t.satisfaction}%`} note={`피드백 ${t.feedbackCount}건`}/>
+        <Kpi label="평균 응답 시간" value={t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "—"} note="질문부터 답변 완료까지"/>
+      </KpiGroup>
+
+      <KpiGroup title="지식 운영" hint="지식이 쌓이고 재사용되는지">
+        <Kpi label="지식 문서" value={`${t.documents}건`} note={`청크 ${t.chunks}개`}/>
+        <Kpi label="검색 가능" value={`${t.embedded}개`} note={t.embedded < t.chunks ? `임베딩 누락 ${t.chunks - t.embedded}개` : "전체 임베딩 완료"} alert={t.embedded < t.chunks}/>
+        <Kpi label="지식 재사용" value={`${t.reuse}회`} note="답변에 인용된 누적 횟수"/>
+        <Kpi label="평균 근거 유사도" value={t.avgSimilarity ? t.avgSimilarity.toFixed(3) : "—"} note="높을수록 딱 맞는 근거"/>
+      </KpiGroup>
+
+      <section className="card">
+        <div className="card-head">
+          <div><h2>질문·답변 추이</h2><div className="hint">막대는 하루 질문 수입니다.</div></div>
+        </div>
+        {data.series.some(day => day.questions > 0) ? (
           <div className="chart">
             {data.series.map(day => (
               <div
@@ -248,18 +282,11 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         ) : (
           <div className="empty">이 기간에는 질문 기록이 없습니다.</div>
         )}
-
-        <div className="kpi-grid">
-          <Kpi label="출처 포함 답변률" value={`${t.citationRate}%`}/>
-          <Kpi label="평균 응답 시간" value={t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "기록 없음"}/>
-          <Kpi label="만족도" value={t.satisfaction === null ? "응답 없음" : `${t.satisfaction}% (${t.feedbackCount}건)`}/>
-          <Kpi label="평균 근거 유사도" value={t.avgSimilarity ? t.avgSimilarity.toFixed(3) : "기록 없음"}/>
-        </div>
       </section>
 
       <section className="card">
         <div className="card-head">
-          <div><h2>주제별 질문</h2><div className="hint">답변에 사용된 지식의 카테고리 기준</div></div>
+          <div><h2>주제별 질문</h2><div className="hint">어떤 지식이 많이 쓰이는지 보여 줍니다.</div></div>
         </div>
         {data.topics.length ? (
           <div>
@@ -278,11 +305,25 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
   );
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note: string }) {
-  return <div className="stat"><label>{label}</label><strong>{value}</strong><span className="up">{note}</span></div>;
+function KpiGroup({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div><h2>{title}</h2><div className="hint">{hint}</div></div>
+      </div>
+      <div className="kpi-grid">{children}</div>
+    </section>
+  );
 }
-function Kpi({ label, value }: { label: string; value: string }) {
-  return <div className="kpi"><span>{label}</span><strong>{value}</strong></div>;
+
+function Kpi({ label, value, note, alert }: { label: string; value: string; note?: string; alert?: boolean }) {
+  return (
+    <div className={`kpi ${alert ? "kpi-alert" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {note && <em>{note}</em>}
+    </div>
+  );
 }
 
 /* ── 챗봇 설정 ─────────────────────────────────────────────────────────────── */

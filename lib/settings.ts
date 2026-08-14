@@ -17,21 +17,33 @@ export function defaultSettings(): WorkspaceSettings {
 }
 
 /**
+ * 설정은 거의 바뀌지 않는데 화면이 열릴 때마다 읽습니다.
+ * 인스턴스 안에서 잠깐 캐시해 쿼리 한 번을 아낍니다.
+ * 관리자가 저장하면 아래 saveSettings 가 캐시를 갱신합니다.
+ * (다른 인스턴스에는 최대 CACHE_MS 만큼 늦게 반영됩니다 — 이름·인사말이라 문제없습니다.)
+ */
+const CACHE_MS = 60_000;
+let cache: { value: WorkspaceSettings; at: number } | undefined;
+
+/**
  * workspace_settings 는 단일 행(id=true) 테이블입니다.
  * 예전에는 service_role 키로 supabase-js 를 썼지만, 그 키가 비어 있어 항상 실패했습니다.
  * 이미 잘 붙는 PostgreSQL 연결을 그대로 씁니다.
  */
 export async function getSettings(): Promise<WorkspaceSettings> {
   if (!hasDatabaseConfig()) return defaultSettings();
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.value;
+
   try {
     const rows = await database()`
       select bot_name, team_name, welcome_message, accent_color
       from public.workspace_settings where id = true limit 1
     `;
-    if (!rows.length) return defaultSettings();
-    return { ...defaultSettings(), ...(rows[0] as WorkspaceSettings) };
+    const value = rows.length ? { ...defaultSettings(), ...(rows[0] as WorkspaceSettings) } : defaultSettings();
+    cache = { value, at: Date.now() };
+    return value;
   } catch {
-    return defaultSettings();
+    return cache?.value ?? defaultSettings();
   }
 }
 
@@ -59,7 +71,9 @@ export async function saveSettings(input: Partial<WorkspaceSettings>): Promise<W
       updated_at = now()
     returning bot_name, team_name, welcome_message, accent_color
   `;
-  return rows[0] as WorkspaceSettings;
+  const saved = rows[0] as WorkspaceSettings;
+  cache = { value: saved, at: Date.now() };
+  return saved;
 }
 
 function clean(value: unknown, fallback: string, maxLength: number) {
