@@ -5,7 +5,7 @@ display_information:
 
 features:
   bot_user:
-    display_name: 답봇
+    display_name: answerbot
     always_online: true
 
 oauth_config:
