@@ -15,7 +15,7 @@ oauth_config:
 
 mcp_servers:
   answerbot:
-    url: https://answerbot.example.com/api/mcp
+    url: https://cmslab-chat.vercel.app/api/mcp
     auth_type: slack_identity_auth
 
 settings:
