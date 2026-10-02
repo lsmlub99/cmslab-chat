@@ -58,7 +58,7 @@ export default function AdminShell() {
 
   const loadDashboard = useCallback(async (from?: string, to?: string) => {
     const query = from && to
-      ? `?from=${encodeURIComponent(`${from}T00:00:00.000Z`)}&to=${encodeURIComponent(`${to}T23:59:59.999Z`)}`
+      ? `?from=${encodeURIComponent(`${from}T00:00:00.000+09:00`)}&to=${encodeURIComponent(`${to}T23:59:59.999+09:00`)}`
       : "?days=30";
     try { setDashboard(await getJson(`/api/dashboard${query}`)); }
     catch (error) { setSetupError(error instanceof Error ? error.message : "지표를 불러오지 못했습니다."); }
@@ -243,7 +243,7 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
 
       <KpiGroup title="이용 현황" hint="챗봇이 실제로 쓰이고 있는지 — 성과 보고용 핵심 지표">
         <Kpi label="질의응답 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건 포함`}/>
-        <Kpi label="사용자 수" value={`${t.users}명`} note="로그인 계정 기준"/>
+        <Kpi label="웹 사용자 수" value={`${t.users}명`} note="로그인 계정 기준"/>
         <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질의응답 ÷ 사용자"/>
         <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
       </KpiGroup>
@@ -269,6 +269,13 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         <Kpi label="출처 포함률" value={`${t.citationRate}%`} note="근거를 붙여 답한 비율"/>
         <Kpi label="만족도" value={t.satisfaction === null ? "응답 없음" : `${t.satisfaction}%`} note={`피드백 ${t.feedbackCount}건`}/>
         <Kpi label="평균 응답 시간" value={t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "—"} note="질문부터 답변 완료까지"/>
+      </KpiGroup>
+
+      <KpiGroup title="Slack MCP" hint="Slackbot이 ask_company_knowledge 도구를 실제 실행한 기록">
+        <Kpi label="MCP 호출 수" value={`${t.mcpCalls}건`} note="중복 제거된 tools/call"/>
+        <Kpi label="성공 호출" value={`${t.mcpSuccessfulCalls}건`} note="정상 답변 완료"/>
+        <Kpi label="MCP 사용자" value={`${t.mcpUniqueUsers}명`} note="Slack 계정 기준"/>
+        <Kpi label="MCP 성공률" value={`${t.mcpSuccessRate}%`} note={t.mcpAvgResponseMs ? `평균 ${(t.mcpAvgResponseMs / 1000).toFixed(1)}초` : "호출 기록 없음"}/>
       </KpiGroup>
 
       <KpiGroup title="지식 운영" hint="지식이 쌓이고 재사용되는지">
@@ -769,6 +776,9 @@ function MetricsPanel({ data }: { data?: DashboardData }) {
     ["평균 응답 시간", "운영", t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "기록 없음", "chat_logs.response_ms"],
     ["지식 재사용", "운영", `${t.reuse}회`, "documents.reuse_count 합계"],
     ["지식 적재량", "운영", `문서 ${t.documents}건 / 청크 ${t.chunks}개 (임베딩 ${t.embedded}개)`, "public.documents"],
+    ["Slack MCP 호출", "정량", `${t.mcpCalls}건 / 성공 ${t.mcpSuccessfulCalls}건`, "mcp_tool_calls 중복 제거 tools/call"],
+    ["Slack MCP 사용자", "정량", `${t.mcpUniqueUsers}명`, "Slack team/enterprise + user 고유 수"],
+    ["Slack MCP 성공률", "운영", `${t.mcpSuccessRate}%`, "succeeded ÷ 전체 MCP 호출"],
   ];
 
   return (

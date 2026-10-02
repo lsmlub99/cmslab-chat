@@ -39,8 +39,8 @@ export async function GET(request: Request) {
           -- 그 시절 user_id 는 브라우저 쿠키라 사람 수로 셀 수 없으므로
           -- "사용자 수"는 로그인 계정만 셉니다(성과 보고에 쓰는 값이라 기준을 분명히 둡니다).
           count(distinct user_id) filter (where user_email is not null)::int as users,
-          count(distinct user_id)::int as visitors,
-          count(*) filter (where user_email is null)::int as anonymous_questions,
+          count(distinct user_id) filter (where user_id not like 'slack:%')::int as visitors,
+          count(*) filter (where user_email is null and user_id not like 'slack:%')::int as anonymous_questions,
           count(*) filter (where not coalesce(is_fallback, false) and coalesce(citation_count, 0) > 0)::int as with_citation,
           coalesce(avg(response_ms) filter (where not coalesce(is_fallback, false) and response_ms is not null), 0)::int as avg_response_ms,
           coalesce(avg(top_similarity) filter (where top_similarity is not null), 0)::float8 as avg_similarity
@@ -63,9 +63,10 @@ export async function GET(request: Request) {
           select (created_at at time zone ${TIME_ZONE})::date as bucket,
                  count(*) as questions,
                  count(*) filter (where not coalesce(is_fallback, false)) as answered
-          from public.chat_logs
-          where created_at >= ${from} and created_at <= ${to}
-          group by 1
+           from public.chat_logs
+           where created_at >= ${from} and created_at <= ${to}
+             and coalesce(category, '') <> 'blocked'
+           group by 1
         ) as counted on counted.bucket = day::date
         order by day
       `,
@@ -124,6 +125,27 @@ export async function GET(request: Request) {
       limit 50
     `;
 
+    // 004_slack_mcp.sql 적용 전에도 기존 대시보드는 열리도록 MCP 집계만 0으로 물러섭니다.
+    let mcp = { calls: 0, successful: 0, users: 0, avgResponseMs: 0 };
+    try {
+      const rows = await sql`
+        select count(*)::int as calls,
+               count(*) filter (where status = 'succeeded')::int as successful,
+               count(distinct concat_ws(':', coalesce(slack_enterprise_id, ''), coalesce(slack_team_id, ''), slack_user_id))::int as users,
+               coalesce(avg(latency_ms) filter (where status = 'succeeded'), 0)::int as avg_response_ms
+        from public.mcp_tool_calls
+        where created_at >= ${from} and created_at <= ${to}
+      `;
+      mcp = {
+        calls: Number(rows[0].calls),
+        successful: Number(rows[0].successful),
+        users: Number(rows[0].users),
+        avgResponseMs: Number(rows[0].avg_response_ms),
+      };
+    } catch {
+      // 아직 마이그레이션을 적용하지 않은 배포를 위한 호환 경로입니다.
+    }
+
     const row = totals[0];
     const questions = Number(row.questions);
     const answered = Number(row.answered);
@@ -150,6 +172,11 @@ export async function GET(request: Request) {
         documents: Number(documents[0].documents),
         chunks: Number(documents[0].chunks),
         embedded: Number(documents[0].embedded),
+        mcpCalls: mcp.calls,
+        mcpSuccessfulCalls: mcp.successful,
+        mcpUniqueUsers: mcp.users,
+        mcpSuccessRate: percent(mcp.successful, mcp.calls),
+        mcpAvgResponseMs: mcp.avgResponseMs,
       },
       series: series.map(item => ({
         date: String(item.date),

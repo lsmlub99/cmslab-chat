@@ -47,6 +47,12 @@ export type DashboardTotals = {
   documents: number;
   chunks: number;
   embedded: number;
+  /** Slackbot이 실제 실행한 ask_company_knowledge tools/call 수. */
+  mcpCalls: number;
+  mcpSuccessfulCalls: number;
+  mcpUniqueUsers: number;
+  mcpSuccessRate: number;
+  mcpAvgResponseMs: number;
 };
 
 export type DashboardData = {

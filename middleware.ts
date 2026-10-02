@@ -21,6 +21,8 @@ const ALWAYS_OPEN = [
   "/api/admin/logout",
   "/api/admin/session",
   "/api/ping",
+  // Slackbot MCP는 브라우저 로그인이 아니라 Slack 요청 서명으로 인증합니다.
+  "/api/mcp",
 ];
 
 const ADMIN_ONLY_PREFIX = ["/admin", "/api/knowledge"];

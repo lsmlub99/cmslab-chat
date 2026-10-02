@@ -24,3 +24,19 @@ npx next dev
 `문서 업로드 → 텍스트 추출 → 700~900토큰 청크 → documents.content + metadata 저장 → content_fts·부분일치 검색 → 최대 8개 청크 → Responses API 스트리밍 답변`
 
 API 키는 서버 라우트에서만 사용하며 브라우저로 전달하지 않습니다.
+
+## Slackbot MCP 연결
+
+이 앱은 `POST /api/mcp`에 Slackbot용 원격 MCP 서버를 제공합니다. Slack 앱을 만들 때
+`slack-app-manifest.yaml`의 예시 도메인을 실제 HTTPS 배포 주소로 바꾸고 앱 manifest에
+등록하세요. MCP 서버 인증 방식은 `Slack identity auth`입니다.
+
+배포 환경에는 기존 설정과 함께 `SLACK_SIGNING_SECRET`을 추가하고,
+`supabase/migrations/004_slack_mcp.sql`을 적용해야 합니다. MCP 엔드포인트는 Slack 요청의
+서명과 5분 timestamp 창을 검증하며, Slack이 넣어 주는 사용자·워크스페이스 ID로 호출 수와
+고유 사용자 수를 집계합니다.
+
+등록 도구는 읽기 전용 `ask_company_knowledge` 하나입니다. `initialize`, `tools/list` 같은
+프로토콜 요청은 KPI에 포함하지 않고, 서명 검증을 통과한 중복 없는 `tools/call`만
+`public.mcp_tool_calls`에 기록합니다. 관리자 대시보드에서 호출 수, 성공 호출, 고유 사용자,
+성공률을 확인할 수 있습니다.

@@ -1,0 +1,24 @@
+display_information:
+  name: 답봇
+  description: 사내 지식 문서에서 근거를 찾아 답변하는 Slackbot MCP 도구
+  background_color: "#273e82"
+
+features:
+  bot_user:
+    display_name: 답봇
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - mcp:connect
+
+mcp_servers:
+  answerbot:
+    url: https://answerbot.example.com/api/mcp
+    auth_type: slack_identity_auth
+
+settings:
+  org_deploy_enabled: true
+  socket_mode_enabled: false
+  token_rotation_enabled: false
