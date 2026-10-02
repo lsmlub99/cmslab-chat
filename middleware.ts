@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ADMIN_COOKIE, hasAdminPassword, verifySessionToken } from "@/lib/auth";
-import { hasDomainRestriction, hasGoogleCredentials, readSession, USER_COOKIE } from "@/lib/google-auth";
+import { hasGoogleConfig, readSession, requiresGoogleAuth, USER_COOKIE } from "@/lib/google-auth";
 import { isAdminEmail, usesEmailAdmin } from "@/lib/admin-access";
 
 /**
@@ -20,7 +20,6 @@ const ALWAYS_OPEN = [
   "/api/admin/login",
   "/api/admin/logout",
   "/api/admin/session",
-  "/api/health/db",
   "/api/ping",
 ];
 
@@ -35,6 +34,7 @@ function needsAdmin(pathname: string, method: string) {
   if (pathname === "/api/logs") return true;
   if (pathname === "/api/dashboard") return true;
   if (pathname.startsWith("/api/questions")) return true;
+  if (pathname === "/api/health/db") return true;
   // 설정은 읽기 공개(챗봇 이름·인사말이 필요), 저장은 관리자만.
   if (pathname === "/api/settings" && method !== "GET") return true;
   return false;
@@ -57,10 +57,10 @@ export async function middleware(request: NextRequest) {
   // 세션은 한 번만 읽어 아래 두 단계에서 함께 씁니다.
   const user = await readSession(request.cookies.get(USER_COOKIE)?.value);
 
-  if (hasGoogleCredentials()) {
-    // 도메인 제한이 없으면 누구나 통과할 수 있으므로 아예 잠급니다.
-    if (!hasDomainRestriction()) {
-      const message = "ALLOWED_EMAIL_DOMAINS 가 설정되지 않아 로그인을 받을 수 없습니다.";
+  if (requiresGoogleAuth()) {
+    // 프로덕션이거나 Google 설정이 하나라도 있으면, 완전한 설정 전까지 잠급니다.
+    if (!hasGoogleConfig()) {
+      const message = "Google 로그인 설정이 완전하지 않아 요청을 받을 수 없습니다.";
       return isApi
         ? NextResponse.json({ error: message, setupRequired: true }, { status: 503 })
         : NextResponse.redirect(new URL("/login?error=setup", request.url));

@@ -2,17 +2,12 @@
 
 ## 시작하기 전에 — 접근 제한 상태
 
-현재 **채팅 화면에는 아무 잠금이 없습니다.** 배포하면 URL을 아는 사람은 누구나
-사내 지식(와이파이 비밀번호, 인사·경조사 규정, 제휴 할인처 등)을 조회할 수 있습니다.
+프로덕션에서는 Google OAuth 회사 계정 로그인이 반드시 필요합니다.
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL_DOMAINS` 중 하나라도 빠지면
+사이트는 공개되는 대신 503으로 잠깁니다. 세 값을 모두 등록한 뒤 배포하세요.
 
-Google OAuth(회사 도메인 제한)를 붙이기 전까지는:
-
-- **URL을 외부에 공유하지 마세요.**
-- 검색엔진 색인은 이미 막아 두었습니다(`app/robots.ts`, `X-Robots-Tag` 헤더).
-- Vercel Pro 플랜이라면 **Settings → Deployment Protection → Vercel Authentication**
-  을 켜면 Vercel 계정으로 로그인한 사람만 접근할 수 있습니다. 임시 방어로 가장 확실합니다.
-
-관리자(`/admin`)는 `ADMIN_PASSWORD` 로 잠겨 있습니다.
+관리자는 `ADMIN_EMAILS`에 등록한 Google 계정으로 지정하는 방식을 권장합니다.
+`ADMIN_EMAILS`가 없을 때만 `ADMIN_PASSWORD` 방식으로 동작합니다.
 
 ---
 
@@ -50,6 +45,11 @@ Production / Preview / Development 모두 체크하세요.
 | `OPENAI_API_KEY` | `sk-proj-...` | 로컬 `.env.local` 과 동일 |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | 1536차원 고정 |
+| `GOOGLE_CLIENT_ID` | Google OAuth 클라이언트 ID | 필수 |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth 클라이언트 보안 비밀 | 필수 |
+| `ALLOWED_EMAIL_DOMAINS` | `example.com` | 회사 Workspace 도메인, 쉼표 구분 |
+| `AUTH_SESSION_SECRET` | 임의의 긴 문자열 | 권장 |
+| `ADMIN_EMAILS` | `admin@example.com` | 권장, 쉼표 구분 |
 | `ADMIN_PASSWORD` | (새 비밀번호) | **로컬과 다른 값을 쓰세요** |
 | `ADMIN_SESSION_SECRET` | 임의의 긴 문자열 | 선택. 없으면 비밀번호에서 파생 |
 | `RAG_SIMILARITY_THRESHOLD` | `0.24` | |

@@ -26,9 +26,9 @@ export async function GET() {
       { ok: true, ms: Date.now() - started },
       { headers: { "Cache-Control": "no-store" } },
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { ok: false, ms: Date.now() - started, error: error instanceof Error ? error.message : "연결 실패" },
+      { ok: false, ms: Date.now() - started, error: "데이터베이스 연결에 실패했습니다." },
       { status: 503 },
     );
   }

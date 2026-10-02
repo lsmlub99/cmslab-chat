@@ -25,6 +25,8 @@ export type SessionUser = {
   email: string;
   name: string;
   picture?: string;
+  /** Google Workspace hosted domain. 개인 Google 계정과 회사 계정을 구분합니다. */
+  hostedDomain: string;
 };
 
 export function googleClientId() {
@@ -43,9 +45,26 @@ export function hasGoogleCredentials() {
   return Boolean(googleClientId() && googleClientSecret());
 }
 
+/** Google 로그인 관련 필수값 중 하나라도 설정됐는지. 부분 설정도 공개 모드로 보지 않습니다. */
+export function hasAnyGoogleAuthConfig() {
+  return Boolean(
+    googleClientId()
+    || googleClientSecret()
+    || process.env.ALLOWED_EMAIL_DOMAINS?.trim(),
+  );
+}
+
 /** 로그인을 실제로 받을 수 있는지. 도메인 제한까지 갖춰져야 합니다. */
 export function hasGoogleConfig() {
   return hasGoogleCredentials() && hasDomainRestriction();
+}
+
+/**
+ * 프로덕션은 OAuth 설정을 빠뜨려도 공개되지 않도록 항상 로그인을 요구합니다.
+ * 로컬 개발에서 모든 Google 설정을 비운 경우에만 예전 익명 모드를 허용합니다.
+ */
+export function requiresGoogleAuth() {
+  return process.env.NODE_ENV === "production" || hasAnyGoogleAuthConfig();
 }
 
 /** 로그인을 허용할 이메일 도메인 목록. */
@@ -76,9 +95,10 @@ export function isAllowedEmail(email: string, hostedDomain?: string) {
 
   const emailDomain = email.split("@")[1]?.toLowerCase() ?? "";
   // hd(hosted domain)는 구글 워크스페이스 계정에만 붙습니다.
-  // 개인 gmail 이 회사 도메인처럼 보이는 별칭을 쓰는 경우를 막기 위해 둘 다 봅니다.
-  if (hostedDomain && !domains.includes(hostedDomain.toLowerCase())) return false;
-  return domains.includes(emailDomain);
+  // 개인 Google 계정이 회사 주소를 로그인 이메일로 쓰는 경우를 막기 위해
+  // 이메일 도메인과 hd 를 모두 필수로 검사합니다.
+  if (!hostedDomain) return false;
+  return domains.includes(emailDomain) && domains.includes(hostedDomain.toLowerCase());
 }
 
 function secret() {
@@ -122,8 +142,15 @@ export async function readSession(token: string | undefined, now = Date.now()): 
     if (typeof data.exp !== "number" || data.exp < now) return null;
     if (!data.id || !data.email) return null;
     // 세션 발급 후 허용 도메인 설정이 바뀌었을 수 있으므로 다시 확인합니다.
-    if (!isAllowedEmail(String(data.email))) return null;
-    return { id: String(data.id), email: String(data.email), name: String(data.name ?? ""), picture: data.picture };
+    const hostedDomain = typeof data.hostedDomain === "string" ? data.hostedDomain : "";
+    if (!isAllowedEmail(String(data.email), hostedDomain)) return null;
+    return {
+      id: String(data.id),
+      email: String(data.email),
+      name: String(data.name ?? ""),
+      picture: data.picture,
+      hostedDomain,
+    };
   } catch {
     return null;
   }
@@ -224,15 +251,27 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<S
 
   const claims = decodeJwtPayload(tokens.id_token);
   if (!claims?.sub || !claims.email) return null;
-  if (claims.email_verified === false) return null;
-  if (!isAllowedEmail(String(claims.email), claims.hd ? String(claims.hd) : undefined)) return null;
+  if (claims.email_verified !== true) return null;
+  if (claims.iss !== "https://accounts.google.com" && claims.iss !== "accounts.google.com") return null;
+  if (!hasAudience(claims.aud, googleClientId())) return null;
+  if (typeof claims.exp !== "number" || claims.exp * 1000 <= Date.now()) return null;
+
+  const hostedDomain = claims.hd ? String(claims.hd) : "";
+  if (!isAllowedEmail(String(claims.email), hostedDomain)) return null;
 
   return {
     id: String(claims.sub),
     email: String(claims.email),
     name: String(claims.name || String(claims.email).split("@")[0]),
     picture: claims.picture ? String(claims.picture) : undefined,
+    hostedDomain,
   };
+}
+
+function hasAudience(value: unknown, expected: string) {
+  if (!expected) return false;
+  if (typeof value === "string") return value === expected;
+  return Array.isArray(value) && value.some(item => item === expected);
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
