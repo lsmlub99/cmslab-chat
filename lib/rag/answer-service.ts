@@ -24,6 +24,7 @@ export const FALLBACK_ANSWER =
   "등록된 팀 지식에서 확인되지 않는 내용입니다. 관리자에게 질문을 전달했으니 확인 후 지식으로 등록될 예정입니다.";
 
 export type KnowledgeAnswerStatus = "answered" | "insufficient" | "blocked";
+export type KnowledgeInteractionSource = "slack_mcp" | "slack_mention";
 
 export type KnowledgeAnswerResult = {
   status: KnowledgeAnswerStatus;
@@ -45,7 +46,7 @@ type AnswerActor = {
 export async function answerKnowledgeQuestion(input: {
   question: string;
   actor: AnswerActor;
-  interactionSource: "slack_mcp";
+  interactionSource: KnowledgeInteractionSource;
   conversationId?: string;
   history?: HistoryTurn[];
 }): Promise<KnowledgeAnswerResult> {
@@ -71,6 +72,7 @@ export async function answerKnowledgeQuestion(input: {
       citationCount: 0,
       topSimilarity: null,
     });
+    await recordAction(input.interactionSource, false, started);
     return result("blocked", BLOCKED_MESSAGE, [], [], questionId, conversationId, started);
   }
 
@@ -88,7 +90,7 @@ export async function answerKnowledgeQuestion(input: {
       citationCount: 0,
       topSimilarity,
     });
-    await recordAction(false, started);
+    await recordAction(input.interactionSource, false, started);
     return result("insufficient", FALLBACK_ANSWER, [], [], questionId, conversationId, started);
   }
 
@@ -143,7 +145,7 @@ export async function answerKnowledgeQuestion(input: {
     await insertCitations(questionId, finalCitations);
     await incrementReuse([...new Set(finalCitations.map(citation => citation.id))]);
   }
-  await recordAction(!insufficient, started);
+  await recordAction(input.interactionSource, !insufficient, started);
 
   return result(
     insufficient ? "insufficient" : "answered",
@@ -173,7 +175,7 @@ type ChatLogInput = {
   fallback: boolean;
   actor: AnswerActor;
   conversationId: string;
-  interactionSource: "slack_mcp";
+  interactionSource: KnowledgeInteractionSource;
   responseMs: number;
   followup: boolean;
   citationCount: number;
@@ -246,9 +248,11 @@ function result(
   return { status, answer, citations, links, questionId, conversationId, responseMs: Date.now() - started };
 }
 
-async function recordAction(success: boolean, started: number) {
+async function recordAction(source: KnowledgeInteractionSource, success: boolean, started: number) {
   await logUserAction({
-    action: "mcp_ask_company_knowledge",
+    action: source === "slack_mcp"
+      ? "mcp_ask_company_knowledge"
+      : "slack_mention_ask_company_knowledge",
     success,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);

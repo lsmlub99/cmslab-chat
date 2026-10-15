@@ -146,6 +146,38 @@ export async function GET(request: Request) {
       // 아직 마이그레이션을 적용하지 않은 배포를 위한 호환 경로입니다.
     }
 
+    // Slackbot MCP와 일반 @answerbot 멘션을 합친 실제 Slack 이용 지표입니다.
+    // 005 마이그레이션 전에는 기존 MCP 집계로 안전하게 물러섭니다.
+    let slack = { ...mcp, mentionCalls: 0 };
+    try {
+      const rows = await sql`
+        select count(*)::int as calls,
+               count(*) filter (where status = 'succeeded')::int as successful,
+               count(*) filter (where source = 'mention')::int as mention_calls,
+               count(distinct concat_ws(':', coalesce(slack_enterprise_id, ''), coalesce(slack_team_id, ''), slack_user_id))::int as users,
+               coalesce(avg(latency_ms) filter (where status = 'succeeded'), 0)::int as avg_response_ms
+        from (
+          select 'mcp'::text as source, status, latency_ms,
+                 slack_enterprise_id, slack_team_id, slack_user_id, created_at
+          from public.mcp_tool_calls
+          union all
+          select 'mention'::text as source, status, latency_ms,
+                 slack_enterprise_id, slack_team_id, slack_user_id, created_at
+          from public.slack_bot_calls
+        ) as slack_calls
+        where created_at >= ${from} and created_at <= ${to}
+      `;
+      slack = {
+        calls: Number(rows[0].calls),
+        successful: Number(rows[0].successful),
+        mentionCalls: Number(rows[0].mention_calls),
+        users: Number(rows[0].users),
+        avgResponseMs: Number(rows[0].avg_response_ms),
+      };
+    } catch {
+      // 아직 005_slack_mention_bot.sql을 적용하지 않은 배포를 위한 호환 경로입니다.
+    }
+
     const row = totals[0];
     const questions = Number(row.questions);
     const answered = Number(row.answered);
@@ -177,6 +209,12 @@ export async function GET(request: Request) {
         mcpUniqueUsers: mcp.users,
         mcpSuccessRate: percent(mcp.successful, mcp.calls),
         mcpAvgResponseMs: mcp.avgResponseMs,
+        slackCalls: slack.calls,
+        slackSuccessfulCalls: slack.successful,
+        slackMentionCalls: slack.mentionCalls,
+        slackUniqueUsers: slack.users,
+        slackSuccessRate: percent(slack.successful, slack.calls),
+        slackAvgResponseMs: slack.avgResponseMs,
       },
       series: series.map(item => ({
         date: String(item.date),

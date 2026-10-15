@@ -271,11 +271,11 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         <Kpi label="평균 응답 시간" value={t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "—"} note="질문부터 답변 완료까지"/>
       </KpiGroup>
 
-      <KpiGroup title="Slack MCP" hint="Slackbot이 ask_company_knowledge 도구를 실제 실행한 기록">
-        <Kpi label="MCP 호출 수" value={`${t.mcpCalls}건`} note="중복 제거된 tools/call"/>
-        <Kpi label="성공 호출" value={`${t.mcpSuccessfulCalls}건`} note="정상 답변 완료"/>
-        <Kpi label="MCP 사용자" value={`${t.mcpUniqueUsers}명`} note="Slack 계정 기준"/>
-        <Kpi label="MCP 성공률" value={`${t.mcpSuccessRate}%`} note={t.mcpAvgResponseMs ? `평균 ${(t.mcpAvgResponseMs / 1000).toFixed(1)}초` : "호출 기록 없음"}/>
+      <KpiGroup title="Slack 답봇" hint="@answerbot 멘션과 Slackbot MCP의 중복 제거된 실제 호출">
+        <Kpi label="Slack 호출 수" value={`${t.slackCalls}건`} note={`@멘션 ${t.slackMentionCalls}건 · MCP ${t.mcpCalls}건`}/>
+        <Kpi label="성공 호출" value={`${t.slackSuccessfulCalls}건`} note="정상 답변 완료"/>
+        <Kpi label="Slack 사용자" value={`${t.slackUniqueUsers}명`} note="Slack 계정 기준"/>
+        <Kpi label="Slack 성공률" value={`${t.slackSuccessRate}%`} note={t.slackAvgResponseMs ? `평균 ${(t.slackAvgResponseMs / 1000).toFixed(1)}초` : "호출 기록 없음"}/>
       </KpiGroup>
 
       <KpiGroup title="지식 운영" hint="지식이 쌓이고 재사용되는지">
@@ -776,9 +776,9 @@ function MetricsPanel({ data }: { data?: DashboardData }) {
     ["평균 응답 시간", "운영", t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "기록 없음", "chat_logs.response_ms"],
     ["지식 재사용", "운영", `${t.reuse}회`, "documents.reuse_count 합계"],
     ["지식 적재량", "운영", `문서 ${t.documents}건 / 청크 ${t.chunks}개 (임베딩 ${t.embedded}개)`, "public.documents"],
-    ["Slack MCP 호출", "정량", `${t.mcpCalls}건 / 성공 ${t.mcpSuccessfulCalls}건`, "mcp_tool_calls 중복 제거 tools/call"],
-    ["Slack MCP 사용자", "정량", `${t.mcpUniqueUsers}명`, "Slack team/enterprise + user 고유 수"],
-    ["Slack MCP 성공률", "운영", `${t.mcpSuccessRate}%`, "succeeded ÷ 전체 MCP 호출"],
+    ["Slack 답봇 호출", "정량", `${t.slackCalls}건 / 성공 ${t.slackSuccessfulCalls}건`, `@mention ${t.slackMentionCalls}건 + MCP ${t.mcpCalls}건`],
+    ["Slack 답봇 사용자", "정량", `${t.slackUniqueUsers}명`, "Slack team/enterprise + user 고유 수"],
+    ["Slack 답봇 성공률", "운영", `${t.slackSuccessRate}%`, "succeeded ÷ 전체 Slack 호출"],
   ];
 
   return (

@@ -53,6 +53,13 @@ export type DashboardTotals = {
   mcpUniqueUsers: number;
   mcpSuccessRate: number;
   mcpAvgResponseMs: number;
+  /** Slackbot MCP와 일반 @answerbot 호출을 합친 Slack 사용량. */
+  slackCalls: number;
+  slackSuccessfulCalls: number;
+  slackMentionCalls: number;
+  slackUniqueUsers: number;
+  slackSuccessRate: number;
+  slackAvgResponseMs: number;
 };
 
 export type DashboardData = {

@@ -12,6 +12,8 @@ oauth_config:
   scopes:
     bot:
       - mcp:connect
+      - app_mentions:read
+      - chat:write
 
 mcp_servers:
   answerbot:
@@ -19,6 +21,10 @@ mcp_servers:
     auth_type: slack_identity_auth
 
 settings:
+  event_subscriptions:
+    request_url: https://cmslab-chat.vercel.app/api/slack/events
+    bot_events:
+      - app_mention
   org_deploy_enabled: true
   socket_mode_enabled: false
   token_rotation_enabled: false
