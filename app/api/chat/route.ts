@@ -20,6 +20,7 @@ import { extractUrls } from "@/lib/rag/links";
 import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
 import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
 import { errorCodeOf } from "@/lib/rag/ai-error";
+import { selectReferencedItems, selectUsedCitations, stripCitationReferences } from "@/lib/rag/citations";
 import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import type { Citation } from "@/lib/types";
@@ -313,15 +314,17 @@ export async function POST(request: Request) {
             return;
           }
 
-          if (replace) send("replace", { text: answer });
-          else if (tail) send("delta", { text: tail });
-
           settled = true;
 
           // 모델이 "근거가 부족합니다"로 답하면 인용을 붙이지 않고 미답변으로 넘깁니다.
           const insufficient = saysInsufficient(answer);
-          const finalAnswer = insufficient ? FALLBACK_ANSWER : answer;
-          const finalCitations = insufficient ? [] : citations;
+          const finalAnswer = insufficient ? FALLBACK_ANSWER : stripCitationReferences(answer);
+          const finalCitations = insufficient ? [] : selectUsedCitations(answer, citations);
+
+          // 모델은 사용한 근거를 [출처 N]으로 표시하지만, 화면에는 별도 출처 목록이 있으므로
+          // 최종 전문으로 교체해 본문의 중복 표시는 숨깁니다.
+          if (replace || finalAnswer !== answer) send("replace", { text: finalAnswer });
+          else if (tail) send("delta", { text: tail });
 
           const logId = await insertChatLog({
             question,
@@ -354,7 +357,7 @@ export async function POST(request: Request) {
             questionId: logId,
             citations: finalCitations,
             // 근거를 쓰지 않은 답변에는 링크도 붙이지 않습니다.
-            links: insufficient ? [] : links,
+            links: insufficient ? [] : collectLinks(selectReferencedItems(answer, rows)),
             unanswered: insufficient,
             ...(insufficient ? { answer: FALLBACK_ANSWER } : {}),
           });

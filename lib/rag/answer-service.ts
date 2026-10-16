@@ -13,6 +13,7 @@ import {
 import { chatModel } from "@/lib/openai";
 import { buildSearchQuery, isEmptyAnswer, saysInsufficient, streamAnswer, type HistoryTurn } from "@/lib/rag/answer";
 import { errorCodeOf } from "@/lib/rag/ai-error";
+import { selectReferencedItems, selectUsedCitations, stripCitationReferences } from "@/lib/rag/citations";
 import { MATCH_COUNT, TOP_MATCH_THRESHOLD } from "@/lib/rag/config";
 import { extractUrls } from "@/lib/rag/links";
 import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
@@ -95,7 +96,6 @@ export async function answerKnowledgeQuestion(input: {
   }
 
   const citations = toCitations(rows);
-  const links = collectLinks(rows);
   const aiStarted = Date.now();
   let rawAnswer = "";
 
@@ -128,9 +128,9 @@ export async function answerKnowledgeQuestion(input: {
   if (isEmptyAnswer(answer)) throw new Error("답변을 생성하지 못했습니다. 다시 한번 질문해 주세요.");
 
   const insufficient = saysInsufficient(answer);
-  const finalAnswer = insufficient ? FALLBACK_ANSWER : answer;
-  const finalCitations = insufficient ? [] : citations;
-  const finalLinks = insufficient ? [] : links;
+  const finalAnswer = insufficient ? FALLBACK_ANSWER : stripCitationReferences(answer);
+  const finalCitations = insufficient ? [] : selectUsedCitations(answer, citations);
+  const finalLinks = insufficient ? [] : collectLinks(selectReferencedItems(answer, rows));
   const questionId = await insertChatLog({
     ...common,
     answer: finalAnswer,

@@ -20,4 +20,28 @@ describe("formatSlackAnswer", () => {
     expect(text).toContain("위험 &lt;문서&gt;");
     expect(text).not.toContain("javascript:");
   });
+
+  it("shows extracted links only when they are valid and not already a citation link", () => {
+    const text = formatSlackAnswer({
+      status: "answered",
+      answer: "답변입니다.",
+      questionId: 1,
+      conversationId: "conversation",
+      responseMs: 10,
+      citations: [
+        { id: 1, title: "복리후생", sourceUrl: "https://example.com/benefits" },
+      ],
+      links: [
+        { title: "중복", url: "https://example.com/benefits" },
+        { title: "신청 페이지", url: "https://example.com/apply" },
+        { title: "위험", url: "javascript:alert(1)" },
+      ],
+    });
+
+    expect(text).toContain("*근거 문서*");
+    expect(text).toContain("*관련 링크*");
+    expect(text).toContain("<https://example.com/apply|신청 페이지>");
+    expect(text.match(/https:\/\/example.com\/benefits/g)).toHaveLength(1);
+    expect(text).not.toContain("javascript:");
+  });
 });

@@ -9,7 +9,19 @@ export function formatSlackAnswer(answer: KnowledgeAnswerResult) {
     const url = safeHttpUrl(citation.sourceUrl);
     return `${index + 1}. ${url ? `<${url}|${title}>` : title}${page}`;
   });
-  const suffix = citations.length ? `\n\n*근거*\n${citations.join("\n")}` : "";
+  const citationUrls = new Set(answer.citations.map(citation => safeHttpUrl(citation.sourceUrl)).filter(Boolean));
+  const seenLinks = new Set<string>();
+  const links = answer.links.flatMap(link => {
+    const url = safeHttpUrl(link.url);
+    if (!url || citationUrls.has(url) || seenLinks.has(url)) return [];
+    seenLinks.add(url);
+    return [`${seenLinks.size}. <${url}|${escapeSlackText(link.title || "관련 문서")}>`];
+  }).slice(0, 5);
+  const sections = [
+    citations.length ? `*근거 문서*\n${citations.join("\n")}` : "",
+    links.length ? `*관련 링크*\n${links.join("\n")}` : "",
+  ].filter(Boolean);
+  const suffix = sections.length ? `\n\n${sections.join("\n\n")}` : "";
   const answerBudget = Math.max(200, MAX_MESSAGE_CHARS - suffix.length);
   const body = answer.answer.length > answerBudget
     ? `${answer.answer.slice(0, answerBudget - 1)}…`
