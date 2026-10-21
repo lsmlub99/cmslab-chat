@@ -103,7 +103,9 @@ function toCitations(rows: SearchRow[]): Citation[] {
   return rows.map(row => ({
     id: row.id,
     title: documentTitle(row.metadata),
-    sourceUrl: row.metadata.source_url ? String(row.metadata.source_url) : undefined,
+    sourceUrl: row.metadata.source_url
+      ? String(row.metadata.source_url)
+      : extractUrls(row.content)[0],
     page: row.metadata.page ? Number(row.metadata.page) : undefined,
     similarity: Number(row.similarity.toFixed(4)),
   }));

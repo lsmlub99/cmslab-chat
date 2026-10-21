@@ -51,6 +51,18 @@ describe("keywordTerms", () => {
   it("검색어가 하나도 안 남으면 빈 배열이다", () => {
     expect(keywordTerms("어떻게 알려줘")).toEqual([]);
   });
+
+  it("붙여 쓴 주제 표현에서 핵심어를 복원한다", () => {
+    const terms = keywordTerms("연차관련 내용도 알려줘");
+    expect(terms).toContain("연차");
+    expect(terms).not.toContain("내용도");
+    expect(terms).not.toContain("내용");
+  });
+
+  it("질문 의미가 없는 완곡 표현을 검색어에서 제외한다", () => {
+    expect(keywordTerms("휴가는 어떻게 돼냐 좀 알려줘"))
+      .not.toEqual(expect.arrayContaining(["어떻게", "돼냐", "좀"]));
+  });
 });
 
 describe("ftsQuery", () => {

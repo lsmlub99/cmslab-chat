@@ -4,6 +4,8 @@ import { chunkText } from "@/lib/rag/chunk";
 import { embedTexts } from "@/lib/rag/embeddings";
 import { deleteBySourceHash, insertDocumentChunks } from "@/lib/existing-db";
 import { database } from "@/lib/database";
+import { redactSensitiveText } from "@/lib/rag/redact";
+import { extractUrls } from "@/lib/rag/links";
 
 type IngestInput = {
   title: string;
@@ -30,7 +32,7 @@ export async function ingestKnowledge(input: IngestInput) {
     await deleteBySourceHash(hash);
   }
 
-  const raw = normalizeText(await extractText(input.buffer, input.filename));
+  const raw = redactSensitiveText(normalizeText(await extractText(input.buffer, input.filename)));
   const pageParts = raw.split(/\[PAGE_BREAK\]/).map(part => part.trim()).filter(Boolean);
   const sourceParts = pageParts.length > 1 ? pageParts : [raw];
 
@@ -58,7 +60,8 @@ export async function ingestKnowledge(input: IngestInput) {
       file_type: fileType,
       source_hash: hash,
       source_label: input.sourceLabel || null,
-      source_url: input.sourceUrl || null,
+      // 별도 출처를 입력하지 않아도 해당 청크의 첫 링크를 근거 링크로 보존합니다.
+      source_url: input.sourceUrl || extractUrls(chunk.content)[0] || null,
       chunk_index: index,
       token_count: chunk.tokenCount,
       page: chunk.page ?? null,

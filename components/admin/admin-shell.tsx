@@ -281,6 +281,8 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
       <KpiGroup title="지식 운영" hint="지식이 쌓이고 재사용되는지">
         <Kpi label="지식 문서" value={`${t.documents}건`} note={`청크 ${t.chunks}개`}/>
         <Kpi label="검색 가능" value={`${t.embedded}개`} note={t.embedded < t.chunks ? `임베딩 누락 ${t.chunks - t.embedded}개` : "전체 임베딩 완료"} alert={t.embedded < t.chunks}/>
+        <Kpi label="출처 연결" value={`${t.sourceCoverageRate}%`} note="URL이 있는 지식 청크" alert={t.sourceCoverageRate < 100}/>
+        <Kpi label="섹션 구분" value={`${t.sectionCoverageRate}%`} note="제목·항목 단위 검색 기반" alert={t.sectionCoverageRate < 100}/>
         <Kpi label="지식 재사용" value={`${t.reuse}회`} note="답변에 인용된 누적 횟수"/>
         <Kpi label="평균 근거 유사도" value={t.avgSimilarity ? t.avgSimilarity.toFixed(3) : "—"} note="높을수록 딱 맞는 근거"/>
       </KpiGroup>
@@ -776,6 +778,8 @@ function MetricsPanel({ data }: { data?: DashboardData }) {
     ["평균 응답 시간", "운영", t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "기록 없음", "chat_logs.response_ms"],
     ["지식 재사용", "운영", `${t.reuse}회`, "documents.reuse_count 합계"],
     ["지식 적재량", "운영", `문서 ${t.documents}건 / 청크 ${t.chunks}개 (임베딩 ${t.embedded}개)`, "public.documents"],
+    ["출처 연결률", "품질", `${t.sourceCoverageRate}%`, "출처 URL 메타데이터 또는 본문 링크가 있는 청크"],
+    ["섹션 구분률", "품질", `${t.sectionCoverageRate}%`, "section 메타데이터가 있는 청크"],
     ["Slack 답봇 호출", "정량", `${t.slackCalls}건 / 성공 ${t.slackSuccessfulCalls}건`, `@mention ${t.slackMentionCalls}건 + DM ${t.slackDirectMessageCalls}건 + MCP ${t.mcpCalls}건`],
     ["Slack 답봇 사용자", "정량", `${t.slackUniqueUsers}명`, "Slack team/enterprise + user 고유 수"],
     ["Slack 답봇 성공률", "운영", `${t.slackSuccessRate}%`, "succeeded ÷ 전체 Slack 호출"],

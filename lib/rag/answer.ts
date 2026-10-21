@@ -1,6 +1,7 @@
 import type { Citation } from "@/lib/types";
 import { chatModel, openai } from "@/lib/openai";
 import { CONTEXT_CHAR_BUDGET, INSUFFICIENT_MARKER } from "@/lib/rag/config";
+import { redactSensitiveText } from "@/lib/rag/redact";
 
 export function answerInstructions() {
   return `당신은 팀 내부 지식베이스 챗봇입니다.
@@ -18,6 +19,10 @@ export function answerInstructions() {
 - URL을 답변에 적지 마세요. 관련 링크가 실제로 있으면 시스템이 답변 아래에 별도로 표시합니다.
   링크가 있다고 추측하거나 "아래 링크에서 확인하세요"라고 안내하지 마세요.
 - 문서끼리 내용이 충돌하면 두 내용을 함께 알리고 관리자 확인이 필요하다고 쓰세요.
+- 일상적인 가족 호칭과 상황 표현은 근거 문서의 정확한 대상에 대응하세요. 예를 들어 조부모 사망과
+  자녀 결혼은 서로 다른 경조 기준이므로, 관계와 사건을 바꾸거나 넓혀 해석하지 마세요.
+- 누구의 가족인지에 따라 기준이 달라지는데 질문에서 관계를 확인할 수 없다면 임의로 가정하지 말고
+  필요한 관계를 짧게 되물으세요.
 - 답변 마지막 줄에 실제로 사용한 출처만 [출처 1], [출처 3] 형식으로 표시하세요. 사용하지 않은 출처는 쓰지 마세요.
 - 질문과 근거가 무관하거나 답하기에 정보가 모자라면, 추측하지 말고 "${INSUFFICIENT_MARKER}" 라는 문장만 출력하세요.`;
 }
@@ -27,7 +32,7 @@ export function contextFor(citations: Citation[], chunks: { content: string }[])
   let used = 0;
 
   for (const [index, citation] of citations.entries()) {
-    const content = chunks[index]?.content ?? "";
+    const content = redactSensitiveText(chunks[index]?.content ?? "");
     if (!content) continue;
 
     const remaining = CONTEXT_CHAR_BUDGET - used;

@@ -26,9 +26,9 @@ const GROUPS: string[][] = [
   ["유연근무", "시차출퇴근", "선택근무"],
 
   // 경조사
-  ["경조사", "경조금", "경조비", "축의금", "부의금", "조의금", "경조 지원"],
-  ["장례", "상조", "조사", "부고"],
-  ["결혼", "혼례", "예식"],
+  ["경조사", "경조금", "경조비", "축의금", "부의금", "조의금", "경조휴가", "경조 지원"],
+  ["장례", "상조", "조사", "부고", "사망", "별세"],
+  ["결혼", "혼례", "혼인", "예식"],
 
   // 인사·증명
   ["재직증명서", "재직확인서", "재직증명", "재직 증명"],
@@ -67,6 +67,87 @@ const GROUPS: string[][] = [
   ["명함", "사원증"],
 ];
 
+type ConceptRule = { when: (question: string) => boolean; terms: string[] };
+
+const DEATH = /(돌아가|사망|별세|상을\s*당|장례|부고|임종|조부상|조모상|부친상|모친상|빙부상|빙모상)/;
+const MARRIAGE = /(결혼|혼인|혼례|예식|시집|장가)/;
+const GRANDPARENT = /(할아버지|할아버님|할머니|할머님|외할아버지|외할머니|조부|조모|조부모|외조부|외조모)/;
+const PARENT = /(아버지|아빠|어머니|엄마|부모|장인|장모|시아버지|시어머니)/;
+const SPOUSE = /(남편|아내|배우자|와이프)/;
+const SIBLING = /(형|누나|오빠|언니|동생|형제|자매)/;
+
+/**
+ * 낱말 하나가 아니라 문장 속 상황을 사내 문서의 표준 표현으로 바꿉니다.
+ * 관계와 사건을 함께 확인하므로 "할아버지 건강검진"을 조부모상으로 오해하지 않습니다.
+ */
+const CONCEPT_RULES: ConceptRule[] = [
+  {
+    when: question => /(연차|월차|연차휴가)/.test(question),
+    terms: ["연차", "연차휴가", "월차", "휴가", "연차일수", "연차사용"],
+  },
+  {
+    when: question => /휴가/.test(question) && !/(출산|배우자출산|난임|가족돌봄|경조|육아)/.test(question),
+    terms: ["휴가", "연차", "연차휴가", "월차", "휴가일수"],
+  },
+  {
+    when: question => /(쉬고\s*싶|쉴\s*수|하루\s*쉬|며칠\s*쉬|쉬는\s*날)/.test(question),
+    terms: ["휴가", "연차", "연차휴가", "휴가일수"],
+  },
+  {
+    when: question => DEATH.test(question) && GRANDPARENT.test(question) && SPOUSE.test(question),
+    terms: ["경조사", "사망", "배우자 외조부모", "배우자 조부모 사망", "경조금", "경조휴가"],
+  },
+  {
+    when: question => DEATH.test(question) && GRANDPARENT.test(question) && !SPOUSE.test(question),
+    terms: ["경조사", "사망", "본인 외조부모", "조부모 사망", "경조금", "경조휴가"],
+  },
+  {
+    when: question => DEATH.test(question) && PARENT.test(question),
+    terms: ["경조사", "사망", "부모 사망", "본인 배우자 부모", "경조금", "경조휴가"],
+  },
+  {
+    when: question => DEATH.test(question) && SPOUSE.test(question)
+      && !GRANDPARENT.test(question) && !PARENT.test(question) && !SIBLING.test(question),
+    terms: ["경조사", "배우자 사망", "경조금", "경조휴가"],
+  },
+  {
+    when: question => DEATH.test(question) && /(아들|딸|자녀|아이|우리\s*애)/.test(question),
+    terms: ["경조사", "자녀 사망", "경조금", "경조휴가"],
+  },
+  {
+    when: question => DEATH.test(question) && SIBLING.test(question),
+    terms: ["경조사", "형제자매 사망", "경조금", "경조휴가"],
+  },
+  {
+    when: question => MARRIAGE.test(question) && /(아들|딸|자녀|아이|우리\s*애)/.test(question),
+    terms: ["경조사", "자녀 결혼", "경조금", "경조휴가", "혼인"],
+  },
+  {
+    when: question => MARRIAGE.test(question) && SIBLING.test(question),
+    terms: ["경조사", "형제자매 결혼", "경조금", "경조휴가", "혼인"],
+  },
+  {
+    when: question => MARRIAGE.test(question) && /(내가|제가|저는|본인|제\s*결혼)/.test(question),
+    terms: ["경조사", "본인 결혼", "경조금", "경조휴가", "혼인"],
+  },
+  {
+    when: question => /(회갑|환갑|칠순)/.test(question),
+    terms: ["경조사", "회갑", "칠순", "부모", "경조금", "경조휴가"],
+  },
+  {
+    when: question => /(아이|아기|자녀).*(돌잔치|첫돌)|(?:돌잔치|첫돌).*(아이|아기|자녀)/.test(question),
+    terms: ["경조사", "자녀 돌", "경조금"],
+  },
+  {
+    when: question => DEATH.test(question),
+    terms: ["경조사", "사망", "장례", "경조금", "경조휴가"],
+  },
+  {
+    when: question => MARRIAGE.test(question),
+    terms: ["경조사", "결혼", "혼인", "경조금", "경조휴가"],
+  },
+];
+
 /** 낱말 → 같은 뜻 묶음. 소문자로 맞춰 찾습니다. */
 const INDEX = new Map<string, string[]>();
 for (const group of GROUPS) {
@@ -84,8 +165,16 @@ for (const group of GROUPS) {
  * 확장이 너무 많으면 질문의 초점이 흐려지므로 상한을 둡니다.
  */
 export function expandTerms(terms: string[], limit = 24) {
-  const output = [...terms];
-  const seen = new Set(terms.map(term => term.toLowerCase()));
+  const output: string[] = [];
+  const seen = new Set<string>();
+
+  for (const term of terms) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(term);
+    if (output.length >= limit) return output;
+  }
 
   for (const term of terms) {
     for (const synonym of INDEX.get(term.toLowerCase()) ?? []) {
@@ -99,13 +188,23 @@ export function expandTerms(terms: string[], limit = 24) {
   return output;
 }
 
+/** 질문 전체 문맥에서 추론한 표준 업무 용어까지 합칩니다. */
+export function expandQueryTerms(question: string, terms: string[], limit = 32) {
+  const inferred = CONCEPT_RULES
+    .filter(rule => rule.when(question))
+    .flatMap(rule => rule.terms);
+  return expandTerms([...terms, ...inferred], limit);
+}
+
 /**
  * 임베딩 검색에 쓸 문장.
  * 원문 뒤에 동의어를 덧붙이면 "휴가"로 물어도 "연차" 문서에 가까워집니다.
  * 원문을 앞에 그대로 두어 질문의 의도가 희석되지 않게 합니다.
  */
 export function expandForEmbedding(question: string, terms: string[]) {
-  const added = expandTerms(terms).slice(terms.length);
+  const expanded = expandQueryTerms(question, terms);
+  const original = new Set(terms.map(term => term.toLowerCase()));
+  const added = expanded.filter(term => !original.has(term.toLowerCase()));
   return added.length ? `${question} ${added.join(" ")}` : question;
 }
 

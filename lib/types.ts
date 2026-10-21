@@ -47,6 +47,10 @@ export type DashboardTotals = {
   documents: number;
   chunks: number;
   embedded: number;
+  /** 출처 URL 메타데이터 또는 본문 링크를 가진 청크 비율. */
+  sourceCoverageRate: number;
+  /** section 메타데이터가 있는 청크 비율. */
+  sectionCoverageRate: number;
   /** Slackbot이 실제 실행한 ask_company_knowledge tools/call 수. */
   mcpCalls: number;
   mcpSuccessfulCalls: number;

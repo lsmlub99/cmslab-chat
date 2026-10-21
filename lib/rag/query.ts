@@ -20,8 +20,13 @@ const STOPWORDS = new Set([
   "알려줘", "알려주세요", "알려", "궁금해요", "궁금해", "궁금", "궁금한데", "무엇", "뭐야", "뭔가요",
   "어떻게", "어떤", "어디", "어디서", "어디에", "언제", "누구", "얼마", "왜", "인가요", "있나요",
   "하나요", "되나요", "될까요", "인지", "인데", "합니까", "그리고", "또는", "관련", "대해", "대한",
-  "해주세요", "해줘", "주세요", "please", "the", "and", "for", "with", "how", "what", "where",
+  "해주세요", "해줘", "주세요", "내용", "내용도", "사항", "제도", "관련내용", "관련사항", "좀",
+  "돼요", "되나요", "돼나요", "되냐", "돼냐", "please", "the", "and", "for", "with", "how", "what", "where",
 ]);
+
+// 사내 질문에서 주제어 뒤에 붙는 표현입니다. 형태소 분석기를 추가하지 않아도
+// "연차관련", "복지제도" 같은 말을 핵심어로 되돌릴 수 있습니다.
+const TOPIC_SUFFIXES = ["관련사항", "관련내용", "관련", "제도"];
 
 /** 조사를 떼어낸 어간. 떼어낼 것이 없으면 원본을 그대로 돌려줍니다. */
 export function stripParticle(token: string) {
@@ -48,9 +53,19 @@ export function keywordTerms(question: string, limit = 12) {
   for (const token of tokens) {
     const lowered = token.toLowerCase();
     if (STOPWORDS.has(lowered)) continue;
-    if (token.length >= 2) terms.add(token);
     const stem = stripParticle(token);
-    if (stem.length >= 2 && stem !== token && !STOPWORDS.has(stem.toLowerCase())) terms.add(stem);
+    // "내용도"처럼 조사 제거 후 불용어가 되는 토큰은 원형까지 버립니다.
+    if (STOPWORDS.has(stem.toLowerCase())) continue;
+
+    if (token.length >= 2) terms.add(token);
+    if (stem.length >= 2 && stem !== token) terms.add(stem);
+
+    for (const suffix of TOPIC_SUFFIXES) {
+      if (!stem.endsWith(suffix)) continue;
+      const topic = stem.slice(0, -suffix.length);
+      if (topic.length >= 2 && !STOPWORDS.has(topic.toLowerCase())) terms.add(topic);
+      break;
+    }
   }
 
   // 긴 키워드가 더 변별력이 높으므로 우선 남깁니다.

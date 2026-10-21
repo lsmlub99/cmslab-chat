@@ -14,6 +14,32 @@ function splitOversized(block: string) {
   return parts;
 }
 
+function headingOf(block: string) {
+  const markdown = block.match(/^(#{1,6})\s+(.+)$/m)?.[2];
+  if (markdown) return markdown.trim();
+
+  const underlined = block.match(/^([가-힣A-Za-z0-9][^\n]{1,80})\n(?:=+|-+)$/m)?.[1];
+  if (underlined) return underlined.trim();
+
+  const lines = block.split("\n").map(line => line.trim()).filter(Boolean);
+  const first = lines[0] ?? "";
+  if (/^Q[.．:)\s]/i.test(first) && first.length <= 120) return first;
+
+  // 워드·PDF에서 추출된 문서는 Markdown 표식 없이 "연차\nQ. ..."처럼 들어옵니다.
+  // 첫 줄이 짧고 문장형 종결부호·URL·목록 번호가 없을 때만 섹션명으로 봅니다.
+  if (
+    lines.length >= 2
+    && first.length >= 2
+    && first.length <= 40
+    && !/[.!?。！？:]$/.test(first)
+    && !/^https?:\/\//i.test(first)
+    && !/^\d+[.)]\s/.test(first)
+    && !first.includes("|")
+  ) return first;
+
+  return "";
+}
+
 export function chunkText(input: string): TextChunk[] {
   const text = input.trim(); if (!text) return [];
   const blocks = text.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean).flatMap(splitOversized);
@@ -28,8 +54,16 @@ export function chunkText(input: string): TextChunk[] {
     current = carriedOverlap;
   };
   for (const block of blocks) {
-    const heading = block.match(/^(#{1,6})\s+(.+)$/m)?.[2] || block.match(/^([가-힣A-Za-z0-9][^\n]{1,80})\n(?:=+|-+)$/m)?.[1];
-    if (heading) section = heading.trim();
+    const heading = headingOf(block);
+    // 새 항목은 앞 항목과 한 청크에 섞지 않습니다. 그래야 제목/섹션 가중치가
+    // "연차", "출산휴가", "경조사" 같은 실제 주제를 정확히 가리킵니다.
+    if (heading) {
+      if (current && current !== carriedOverlap) flush();
+      // 서로 다른 섹션 사이에는 overlap을 넘기지 않습니다.
+      current = "";
+      carriedOverlap = "";
+      section = heading;
+    }
     if (current && current.length + block.length + 2 > TARGET_CHARS) flush();
     current += `${current ? "\n\n" : ""}${block}`;
   }

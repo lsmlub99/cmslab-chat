@@ -1,9 +1,10 @@
 import { database } from "@/lib/database";
 import { embedQuery } from "@/lib/rag/embeddings";
 import { ftsQuery, keywordTerms } from "@/lib/rag/query";
-import { expandForEmbedding, expandTerms } from "@/lib/rag/synonyms";
+import { expandForEmbedding, expandQueryTerms } from "@/lib/rag/synonyms";
 import { expandQuestion } from "@/lib/rag/expand";
 import { CANDIDATE_COUNT, CANDIDATE_THRESHOLD, MATCH_COUNT } from "@/lib/rag/config";
+import { searchRankScore } from "@/lib/rag/ranking";
 
 export type ExistingDocument = {
   id: number;
@@ -70,7 +71,7 @@ export async function searchDocuments(question: string, limit = MATCH_COUNT) {
    * 임베딩도 만능이 아니어서 "부의금"으로 경조사 문서를, "랩탑"으로 노트북 문서를
    * 상위 8위 안에도 못 올렸습니다. 사전을 붙이자 둘 다 1위가 됐고 지연은 없습니다.
    */
-  const expandedTerms = expandTerms(terms);
+  const expandedTerms = expandQueryTerms(question, terms);
   const embeddingText = expandForEmbedding(question, terms);
 
   const embedding = await embedQuery(embeddingText).catch(() => null);
@@ -91,7 +92,7 @@ async function runSearch(embedding: number[], question: string, terms: string[],
     )
   `) as unknown as RawSearchRow[];
 
-  return rankAndTrim(rows, limit);
+  return rankAndTrim(rows, limit, STRONG_KEYWORD_HITS, terms);
 }
 
 /**
@@ -105,8 +106,10 @@ export async function searchWithExpansion(question: string, limit = MATCH_COUNT)
   const expanded = await expandQuestion(question);
   if (!expanded) return [] as SearchRow[];
 
-  const terms = expandTerms(keywordTerms(`${question} ${expanded}`));
-  const embedding = await embedQuery(`${question} ${expanded}`).catch(() => null);
+  const expandedQuestion = `${question} ${expanded}`;
+  const baseTerms = keywordTerms(expandedQuestion);
+  const terms = expandQueryTerms(expandedQuestion, baseTerms);
+  const embedding = await embedQuery(expandForEmbedding(expandedQuestion, baseTerms)).catch(() => null);
   if (!embedding) return [] as SearchRow[];
 
   return runSearch(embedding, question, terms, limit);
@@ -140,7 +143,7 @@ async function keywordOnlySearch(question: string, terms: string[], limit: numbe
   // 임베딩이 없어 유사도가 전부 0 이므로 여기서 다시 걸러낼 근거가 없습니다.
   // 위 WHERE 절이 이미 키워드/FTS 로 관련 있는 행만 남겼으니 그대로 통과시킵니다.
   // (2개 이상을 요구하면 한 단어 질문 "경조사"가, 1개를 요구하면 FTS 전용 매칭이 탈락합니다.)
-  return rankAndTrim(rows, limit, 0);
+  return rankAndTrim(rows, limit, 0, terms);
 }
 
 /**
@@ -150,7 +153,12 @@ async function keywordOnlySearch(question: string, terms: string[], limit: numbe
  * RRF 순서를 그대로 쓰면 정작 정답 문단이 [출처 2]로 밀려나는 일이 생깁니다.
  * (교육용 데이터에는 같은 문단이 중복 적재된 청크가 있어 근거가 낭비되므로 함께 접습니다.)
  */
-function rankAndTrim(rows: RawSearchRow[], limit: number, minKeywordHits = STRONG_KEYWORD_HITS) {
+function rankAndTrim(
+  rows: RawSearchRow[],
+  limit: number,
+  minKeywordHits = STRONG_KEYWORD_HITS,
+  terms: string[] = [],
+) {
   const seen = new Set<string>();
   const candidates: SearchRow[] = [];
 
@@ -177,21 +185,8 @@ function rankAndTrim(rows: RawSearchRow[], limit: number, minKeywordHits = STRON
   }
 
   return candidates
-    .sort((a, b) => rankScore(b) - rankScore(a))
+    .sort((a, b) => searchRankScore(b, terms) - searchRankScore(a, terms))
     .slice(0, limit);
-}
-
-/**
- * 정렬 점수 = 코사인 유사도 + 키워드 가산점.
- *
- * 코사인만으로 정렬하면 질문의 핵심 단어를 그대로 담고 있는 문단이 밀립니다.
- * 실제로 "개인정보 들어간 서류 어떻게 버려?" 에서 정답 문서(개인정보 폐기 안내)가
- * 0.264로 8위였고, 무관한 IT 문단이 0.372로 1위였습니다.
- * 반대로 키워드만 보면 흔한 단어의 우연한 일치에 끌려갑니다.
- * 그래서 코사인을 주 신호로 두되 키워드 일치에 작은 가산점을 줍니다.
- */
-function rankScore(row: SearchRow) {
-  return row.similarity + 0.03 * Math.min(row.keywordHits, 3);
 }
 
 /** pgvector 는 '[0.1,0.2,...]' 형태의 문자열을 vector 로 캐스팅합니다. */

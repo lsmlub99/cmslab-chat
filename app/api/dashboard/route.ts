@@ -86,6 +86,10 @@ export async function GET(request: Request) {
         select count(*)::int as chunks,
                count(distinct coalesce(nullif(metadata->>'source_hash', ''), 'doc:' || id::text))::int as documents,
                count(embedding)::int as embedded,
+               count(*) filter (
+                 where nullif(metadata->>'source_url', '') is not null or content ~* 'https?://'
+               )::int as source_covered,
+               count(*) filter (where nullif(metadata->>'section', '') is not null)::int as section_covered,
                coalesce(sum(reuse_count), 0)::int as reuse
         from public.documents
       `,
@@ -206,6 +210,8 @@ export async function GET(request: Request) {
         documents: Number(documents[0].documents),
         chunks: Number(documents[0].chunks),
         embedded: Number(documents[0].embedded),
+        sourceCoverageRate: percent(Number(documents[0].source_covered), Number(documents[0].chunks)),
+        sectionCoverageRate: percent(Number(documents[0].section_covered), Number(documents[0].chunks)),
         mcpCalls: mcp.calls,
         mcpSuccessfulCalls: mcp.successful,
         mcpUniqueUsers: mcp.users,
