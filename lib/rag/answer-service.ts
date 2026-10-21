@@ -25,7 +25,7 @@ export const FALLBACK_ANSWER =
   "등록된 팀 지식에서 확인되지 않는 내용입니다. 관리자에게 질문을 전달했으니 확인 후 지식으로 등록될 예정입니다.";
 
 export type KnowledgeAnswerStatus = "answered" | "insufficient" | "blocked";
-export type KnowledgeInteractionSource = "slack_mcp" | "slack_mention";
+export type KnowledgeInteractionSource = "slack_mcp" | "slack_mention" | "slack_dm";
 
 export type KnowledgeAnswerResult = {
   status: KnowledgeAnswerStatus;
@@ -252,7 +252,9 @@ async function recordAction(source: KnowledgeInteractionSource, success: boolean
   await logUserAction({
     action: source === "slack_mcp"
       ? "mcp_ask_company_knowledge"
-      : "slack_mention_ask_company_knowledge",
+      : source === "slack_dm"
+        ? "slack_dm_ask_company_knowledge"
+        : "slack_mention_ask_company_knowledge",
     success,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);

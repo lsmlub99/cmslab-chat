@@ -16,12 +16,14 @@ export async function beginSlackBotCall(input: {
   enterpriseId: string | null;
   userId: string;
   channelId: string;
+  interactionKind: "mention" | "direct_message";
 }) {
   const inserted = await database()`
     insert into public.slack_bot_calls
-      (event_id, slack_team_id, slack_enterprise_id, slack_user_id, slack_channel_id, status)
+      (event_id, slack_team_id, slack_enterprise_id, slack_user_id, slack_channel_id, interaction_kind, status)
     values
-      (${input.eventId}, ${input.teamId}, ${input.enterpriseId}, ${input.userId}, ${input.channelId}, 'processing')
+      (${input.eventId}, ${input.teamId}, ${input.enterpriseId}, ${input.userId}, ${input.channelId},
+       ${input.interactionKind}, 'processing')
     on conflict (event_id) do nothing
     returning id
   `;

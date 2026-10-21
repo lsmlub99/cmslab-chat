@@ -41,13 +41,16 @@ API 키는 서버 라우트에서만 사용하며 브라우저로 전달하지 �
 `public.mcp_tool_calls`에 기록합니다. 관리자 대시보드에서 호출 수, 성공 호출, 고유 사용자,
 성공률을 확인할 수 있습니다.
 
-## Slack에서 @answerbot으로 질문
+## Slack에서 @raebi 또는 앱 메시지로 질문
 
-Slackbot AI 사용량 제한과 무관하게 채널에서 `@answerbot 질문`으로 사용할 수 있습니다.
-Slack 앱 매니페스트의 Event Subscriptions가 `POST /api/slack/events`로 `app_mention`
-이벤트를 전달하며, 서버는 3초 안에 접수한 뒤 같은 스레드에 답변합니다.
+Slackbot AI 사용량 제한과 무관하게 채널에서 `@raebi 질문`으로 호출하거나, Slack의
+래미 앱을 열어 메시지 탭에서 바로 대화할 수 있습니다. Slack 앱 매니페스트의 Event
+Subscriptions가 `POST /api/slack/events`로 `app_mention`과 `message.im` 이벤트를 전달하며,
+서버는 3초 안에 접수합니다. 채널 답변은 같은 스레드에, 앱 DM 답변은 메시지 탭에 표시됩니다.
 
 배포 환경에는 Slack 앱 설치 후 발급된 Bot User OAuth Token을
-`SLACK_BOT_TOKEN`으로 추가하세요. 토큰에는 매니페스트의 `chat:write`와
-`app_mentions:read` 권한만 사용합니다. `supabase/migrations/005_slack_mention_bot.sql`도
-적용해야 중복 이벤트 방지와 Slack KPI 집계가 동작합니다.
+`SLACK_BOT_TOKEN`으로 추가하세요. 토큰에는 매니페스트의 `chat:write`,
+`app_mentions:read`, `im:history` 권한을 사용합니다. `supabase/migrations/005_slack_mention_bot.sql`과
+`006_slack_direct_messages.sql`을 순서대로 적용해야 중복 이벤트 방지와 호출 경로별 Slack KPI
+집계가 동작합니다. `im:history`를 새로 추가한 뒤에는 Slack 앱을 워크스페이스에 다시 설치해야
+새 권한이 Bot User OAuth Token에 반영됩니다.

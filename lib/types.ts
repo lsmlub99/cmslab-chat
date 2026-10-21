@@ -57,6 +57,7 @@ export type DashboardTotals = {
   slackCalls: number;
   slackSuccessfulCalls: number;
   slackMentionCalls: number;
+  slackDirectMessageCalls: number;
   slackUniqueUsers: number;
   slackSuccessRate: number;
   slackAvgResponseMs: number;

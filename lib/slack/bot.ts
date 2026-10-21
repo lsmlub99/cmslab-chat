@@ -1,18 +1,20 @@
 import "server-only";
 
 import { hasDatabaseConfig } from "@/lib/database";
+import { listTurns } from "@/lib/conversations";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit } from "@/lib/rate-limit";
 import { answerKnowledgeQuestion } from "@/lib/rag/answer-service";
+import { HISTORY_TURNS } from "@/lib/rag/answer";
 import { errorCodeOf } from "@/lib/rag/ai-error";
 import { logUserAction } from "@/lib/server/telemetry.server";
 import { finishSlackBotCall } from "@/lib/slack/call-log";
-import type { SlackMention } from "@/lib/slack/events";
+import type { SlackInboundMessage } from "@/lib/slack/events";
 import { formatSlackAnswer } from "@/lib/slack/format";
 
 const MAX_QUESTION_CHARS = 2_000;
 
-export async function handleSlackMention(mention: SlackMention, callId: number) {
+export async function handleSlackMessage(message: SlackInboundMessage, callId: number) {
   const started = Date.now();
   let progressMessageTs: string | null = null;
   let finalReplySent = false;
@@ -22,47 +24,60 @@ export async function handleSlackMention(mention: SlackMention, callId: number) 
       throw codedError("slack_bot_not_configured");
     }
 
-    if (!mention.question) {
-      await postSlackReply(mention, "질문을 함께 적어주세요. 예: `@answerbot 복리후생 제도 알려줘`");
+    if (!message.question) {
+      const example = message.interactionKind === "direct_message"
+        ? "질문을 입력해 주세요. 예: `복리후생 제도 알려줘`"
+        : "질문을 함께 적어주세요. 예: `@raebi 복리후생 제도 알려줘`";
+      await postSlackReply(message, example);
       finalReplySent = true;
       await finishSlackBotCall({ id: callId, status: "insufficient", latencyMs: Date.now() - started });
-      await recordFailedAction(started);
+      await recordFailedAction(message.interactionKind, started);
       return;
     }
-    if (mention.question.length > MAX_QUESTION_CHARS) {
-      await postSlackReply(mention, `질문은 ${MAX_QUESTION_CHARS.toLocaleString("ko-KR")}자 이내로 입력해 주세요.`);
+    if (message.question.length > MAX_QUESTION_CHARS) {
+      await postSlackReply(message, `질문은 ${MAX_QUESTION_CHARS.toLocaleString("ko-KR")}자 이내로 입력해 주세요.`);
       finalReplySent = true;
       await finishSlackBotCall({ id: callId, status: "insufficient", latencyMs: Date.now() - started });
-      await recordFailedAction(started);
+      await recordFailedAction(message.interactionKind, started);
       return;
     }
 
-    const workspace = mention.enterpriseId ?? mention.teamId ?? "workspace";
+    const workspace = message.enterpriseId ?? message.teamId ?? "workspace";
     const limit = await rateLimit(
-      `slack-mention:${workspace}:${mention.userId}`,
+      `slack:${workspace}:${message.userId}`,
       CHAT_LIMIT(),
       CHAT_WINDOW_SECONDS(),
     );
     if (!limit.allowed) {
-      await postSlackReply(mention, `질문이 너무 빠릅니다. ${limit.retryAfter}초 후 다시 시도해 주세요.`);
+      await postSlackReply(message, `질문이 너무 빠릅니다. ${limit.retryAfter}초 후 다시 시도해 주세요.`);
       finalReplySent = true;
       await finishSlackBotCall({ id: callId, status: "rate_limited", latencyMs: Date.now() - started });
-      await recordFailedAction(started);
+      await recordFailedAction(message.interactionKind, started);
       return;
     }
 
     // 모델 응답을 기다리는 동안에도 Slack에 즉시 상태를 보여 줍니다. 같은 메시지를
     // 최종 답변으로 갱신하므로 스레드에 진행 메시지가 따로 남지 않습니다.
-    progressMessageTs = await postSlackReply(mention, "⏳ 사내 문서에서 근거를 찾고 있어요…");
+    progressMessageTs = await postSlackReply(message, "⏳ 사내 문서에서 근거를 찾고 있어요…");
+
+    const actorId = `slack:${workspace}:${message.userId}`;
+    const conversationId = message.interactionKind === "direct_message"
+      ? `slack:${workspace}:${message.channelId}:dm`
+      : `slack:${workspace}:${message.channelId}:${message.threadTs ?? message.eventTs}`;
+    const history = (await listTurns(conversationId, actorId))
+      .filter(turn => !turn.isFallback)
+      .slice(-HISTORY_TURNS)
+      .map(turn => ({ question: turn.question, answer: turn.answer }));
 
     const answer = await answerKnowledgeQuestion({
-      question: mention.question,
-      actor: { id: `slack:${workspace}:${mention.userId}` },
-      interactionSource: "slack_mention",
-      conversationId: `slack:${workspace}:${mention.channelId}:${mention.threadTs ?? mention.eventTs}`,
+      question: message.question,
+      actor: { id: actorId },
+      interactionSource: message.interactionKind === "direct_message" ? "slack_dm" : "slack_mention",
+      conversationId,
+      history,
     });
     answerCompleted = true;
-    await replaceProgressOrPost(mention, progressMessageTs, formatSlackAnswer(answer));
+    await replaceProgressOrPost(message, progressMessageTs, formatSlackAnswer(answer));
     finalReplySent = true;
     await finishSlackBotCall({
       id: callId,
@@ -72,11 +87,11 @@ export async function handleSlackMention(mention: SlackMention, callId: number) 
     });
   } catch (error) {
     if (!finalReplySent) {
-      const message = "사내 지식을 조회하지 못했습니다. 잠시 후 다시 질문해 주세요.";
+      const failureMessage = "사내 지식을 조회하지 못했습니다. 잠시 후 다시 질문해 주세요.";
       if (progressMessageTs) {
-        await replaceProgressOrPost(mention, progressMessageTs, message).catch(() => undefined);
+        await replaceProgressOrPost(message, progressMessageTs, failureMessage).catch(() => undefined);
       } else {
-        await postSlackReply(mention, message).catch(() => undefined);
+        await postSlackReply(message, failureMessage).catch(() => undefined);
       }
     }
     await finishSlackBotCall({
@@ -85,14 +100,14 @@ export async function handleSlackMention(mention: SlackMention, callId: number) 
       latencyMs: Date.now() - started,
       errorCode: errorCodeOf(error),
     }).catch(() => undefined);
-    if (!answerCompleted) await recordFailedAction(started);
+    if (!answerCompleted) await recordFailedAction(message.interactionKind, started);
   }
 }
 
-async function postSlackReply(mention: SlackMention, text: string) {
+async function postSlackReply(message: SlackInboundMessage, text: string) {
   const payload = await callSlackApi<{ ts?: string }>("chat.postMessage", {
-    channel: mention.channelId,
-    thread_ts: mention.threadTs ?? mention.eventTs,
+    channel: message.channelId,
+    ...(message.interactionKind === "mention" ? { thread_ts: message.threadTs ?? message.eventTs } : {}),
     text,
     unfurl_links: false,
     unfurl_media: false,
@@ -110,12 +125,12 @@ async function updateSlackReply(channel: string, ts: string, text: string) {
   });
 }
 
-async function replaceProgressOrPost(mention: SlackMention, progressTs: string, text: string) {
+async function replaceProgressOrPost(message: SlackInboundMessage, progressTs: string, text: string) {
   try {
-    await updateSlackReply(mention.channelId, progressTs, text);
+    await updateSlackReply(message.channelId, progressTs, text);
   } catch {
     // 드물게 기존 메시지 수정이 거절돼도 사용자가 최종 답변을 잃지는 않게 합니다.
-    await postSlackReply(mention, text);
+    await postSlackReply(message, text);
   }
 }
 
@@ -151,9 +166,11 @@ function codedError(code: string) {
   return Object.assign(new Error(code), { code });
 }
 
-async function recordFailedAction(started: number) {
+async function recordFailedAction(interactionKind: SlackInboundMessage["interactionKind"], started: number) {
   await logUserAction({
-    action: "slack_mention_ask_company_knowledge",
+    action: interactionKind === "direct_message"
+      ? "slack_dm_ask_company_knowledge"
+      : "slack_mention_ask_company_knowledge",
     success: false,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);

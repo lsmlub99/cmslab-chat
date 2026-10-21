@@ -46,7 +46,7 @@ Production / Preview / Development 모두 체크하세요.
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | 1536차원 고정 |
 | `SLACK_SIGNING_SECRET` | Slack 앱 Signing Secret | MCP·Events API 요청 서명 검증 |
-| `SLACK_BOT_TOKEN` | `xoxb-...` | `@answerbot` 스레드 답변 전송 |
+| `SLACK_BOT_TOKEN` | `xoxb-...` | `@raebi` 스레드 및 앱 메시지(DM) 답변 전송 |
 | `GOOGLE_CLIENT_ID` | Google OAuth 클라이언트 ID | 필수 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 클라이언트 보안 비밀 | 필수 |
 | `ALLOWED_EMAIL_DOMAINS` | `example.com` | 회사 Workspace 도메인, 쉼표 구분 |

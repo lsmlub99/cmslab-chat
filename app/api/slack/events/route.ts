@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { hasDatabaseConfig } from "@/lib/database";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { verifySlackRequest } from "@/lib/mcp/slack-auth";
-import { handleSlackMention } from "@/lib/slack/bot";
+import { handleSlackMessage } from "@/lib/slack/bot";
 import { beginSlackBotCall } from "@/lib/slack/call-log";
 import { parseSlackEnvelope } from "@/lib/slack/events";
 
@@ -53,10 +53,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const call = await beginSlackBotCall(envelope.mention);
+    const call = await beginSlackBotCall(envelope.message);
     if (!call.duplicate && call.id !== null) {
       after(async () => {
-        await handleSlackMention(envelope.mention, call.id);
+        await handleSlackMessage(envelope.message, call.id);
       });
     }
     return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

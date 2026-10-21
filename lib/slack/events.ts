@@ -1,4 +1,6 @@
-export type SlackMention = {
+export type SlackInteractionKind = "mention" | "direct_message";
+
+export type SlackInboundMessage = {
   eventId: string;
   teamId: string | null;
   enterpriseId: string | null;
@@ -7,15 +9,16 @@ export type SlackMention = {
   eventTs: string;
   threadTs: string | null;
   question: string;
+  interactionKind: SlackInteractionKind;
 };
 
 export type SlackEnvelope =
   | { kind: "challenge"; challenge: string }
-  | { kind: "mention"; mention: SlackMention }
+  | { kind: "message"; message: SlackInboundMessage }
   | { kind: "ignored" }
   | { kind: "invalid" };
 
-/** Slack Events API payload에서 실제 사람의 @mention만 꺼냅니다. */
+/** Slack Events API payload에서 실제 사람의 @mention과 앱 DM만 꺼냅니다. */
 export function parseSlackEnvelope(value: unknown): SlackEnvelope {
   if (!isRecord(value)) return { kind: "invalid" };
 
@@ -27,7 +30,12 @@ export function parseSlackEnvelope(value: unknown): SlackEnvelope {
 
   if (value.type !== "event_callback" || !isRecord(value.event)) return { kind: "ignored" };
   const event = value.event;
-  if (event.type !== "app_mention" || typeof event.bot_id === "string" || typeof event.subtype === "string") {
+  const interactionKind: SlackInteractionKind | null = event.type === "app_mention"
+    ? "mention"
+    : event.type === "message" && event.channel_type === "im"
+      ? "direct_message"
+      : null;
+  if (!interactionKind || typeof event.bot_id === "string" || typeof event.subtype === "string") {
     return { kind: "ignored" };
   }
 
@@ -39,8 +47,8 @@ export function parseSlackEnvelope(value: unknown): SlackEnvelope {
   if (!eventId || !userId || !channelId || !eventTs || text === null) return { kind: "invalid" };
 
   return {
-    kind: "mention",
-    mention: {
+    kind: "message",
+    message: {
       eventId,
       teamId: stringValue(value.team_id),
       enterpriseId: stringValue(value.enterprise_id),
@@ -48,7 +56,8 @@ export function parseSlackEnvelope(value: unknown): SlackEnvelope {
       channelId,
       eventTs,
       threadTs: stringValue(event.thread_ts),
-      question: stripBotMention(text),
+      question: interactionKind === "mention" ? stripBotMention(text) : text.trim(),
+      interactionKind,
     },
   };
 }

@@ -1,11 +1,15 @@
 display_information:
-  name: 답봇
-  description: 사내 지식 문서에서 근거를 찾아 답변하는 Slackbot MCP 도구
+  name: 래미
+  description: 사내 지식 문서에서 근거를 찾아 답변하는 Slack 지식봇
   background_color: "#273e82"
 
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
-    display_name: answerbot
+    display_name: raebi
     always_online: true
 
 oauth_config:
@@ -14,6 +18,7 @@ oauth_config:
       - mcp:connect
       - app_mentions:read
       - chat:write
+      - im:history
 
 mcp_servers:
   answerbot:
@@ -25,6 +30,7 @@ settings:
     request_url: https://cmslab-chat.vercel.app/api/slack/events
     bot_events:
       - app_mention
+      - message.im
   org_deploy_enabled: true
   socket_mode_enabled: false
   token_rotation_enabled: false
