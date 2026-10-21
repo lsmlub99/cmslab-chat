@@ -507,6 +507,8 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
   const [editing, setEditing] = useState<EditingDocument>();
   const [loadingId, setLoadingId] = useState<number>();
   const [busy, setBusy] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const [reviewingId, setReviewingId] = useState<number>();
 
   async function startEdit(id: number) {
     setLoadingId(id);
@@ -560,6 +562,35 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
       onError(error instanceof Error ? error.message : "수정하지 못했습니다.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function reindexAll() {
+    if (!confirm("기존 문서를 백업한 뒤 새 청킹·검색 표현으로 재구성할까요? 이미 재구성된 문서는 건너뜁니다.")) return;
+    setReindexing(true);
+    try {
+      const result = await getJson("/api/knowledge/reindex", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: false }),
+      });
+      onSaved(`문서 ${result.documents?.length ?? 0}건을 재구성했습니다. 백업 묶음: ${result.backupBatch}`);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "기존 문서를 재구성하지 못했습니다.");
+    } finally {
+      setReindexing(false);
+    }
+  }
+
+  async function review(id: number) {
+    setReviewingId(id);
+    try {
+      await getJson(`/api/knowledge/${id}/review`, { method: "POST" });
+      onSaved("문서를 검토 완료로 표시했습니다.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "검토 상태를 저장하지 못했습니다.");
+    } finally {
+      setReviewingId(undefined);
     }
   }
 
@@ -620,7 +651,12 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
           <h2>지식 문서 관리</h2>
           <div className="hint">public.documents의 청크를 문서 단위로 묶어 보여 줍니다.</div>
         </div>
-        <button className="btn primary" onClick={onUpload}>+ 지식 업로드</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn soft" disabled={reindexing} onClick={() => void reindexAll()}>
+            {reindexing ? "재구성 중…" : "기존 문서 재구성"}
+          </button>
+          <button className="btn primary" onClick={onUpload}>+ 지식 업로드</button>
+        </div>
       </div>
 
       {documents.length ? (
@@ -635,6 +671,7 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
                   재사용 {doc.reuse_count}회
                   {doc.owner ? ` · 담당 ${doc.owner}` : ""}
                   {doc.authority ? ` · ${authorityLabel(doc.authority)}` : ""}
+                  {doc.reviewed_at ? ` · 검토 ${new Date(doc.reviewed_at).toLocaleDateString("ko-KR")}` : " · 미검토"}
                   {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleDateString("ko-KR")}` : ""}
                 </div>
                 <span className={`badge ${missing > 0 ? "red" : ""}`}>
@@ -643,6 +680,9 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
                 <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
                   <button className="btn soft" disabled={loadingId === doc.id} onClick={() => startEdit(doc.id)}>
                     <Pencil size={13}/> {loadingId === doc.id ? "불러오는 중…" : "수정"}
+                  </button>
+                  <button className="btn soft" disabled={Boolean(doc.reviewed_at) || reviewingId === doc.id} onClick={() => void review(doc.id)}>
+                    {doc.reviewed_at ? "검토 완료" : reviewingId === doc.id ? "저장 중…" : "검토 완료 표시"}
                   </button>
                   <button className="btn danger" onClick={() => onDelete(doc.id)}>
                     <Trash2 size={13}/> 삭제

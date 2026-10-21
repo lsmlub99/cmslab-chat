@@ -92,6 +92,9 @@ export async function ingestKnowledge(input: IngestInput) {
       expires_at: input.expiresAt || null,
       authority: input.authority || "reference",
       priority: Math.min(100, Math.max(0, input.priority ?? 50)),
+      reviewed_at: null,
+      reviewed_by: null,
+      reindex_version: 3,
       status: "ready",
     },
   }));

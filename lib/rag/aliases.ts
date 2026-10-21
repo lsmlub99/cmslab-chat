@@ -7,7 +7,7 @@ import { parseAliases } from "@/lib/rag/aliases-parser";
 
 type AliasChunk = { content: string; section?: string | null };
 
-const MAX_CHUNKS = 30;
+const BATCH_SIZE = 18;
 const MAX_CONTENT_CHARS = 650;
 
 /**
@@ -21,6 +21,21 @@ export async function generateSearchAliases(input: {
 }) {
   if (!input.chunks.length) return [] as string[][];
 
+  const aliases = Array.from({ length: input.chunks.length }, () => [] as string[]);
+  for (let offset = 0; offset < input.chunks.length; offset += BATCH_SIZE) {
+    const batch = input.chunks.slice(offset, offset + BATCH_SIZE);
+    const generated = await generateAliasBatch({ ...input, chunks: batch });
+    generated.forEach((values, index) => { aliases[offset + index] = values; });
+  }
+  return aliases;
+}
+
+async function generateAliasBatch(input: {
+  title: string;
+  category: string;
+  chunks: AliasChunk[];
+}) {
+
   const model = chatModel();
   const started = Date.now();
   let success = false;
@@ -29,7 +44,7 @@ export async function generateSearchAliases(input: {
   let errorCode: string | undefined;
 
   try {
-    const entries = input.chunks.slice(0, MAX_CHUNKS).map((chunk, index) =>
+    const entries = input.chunks.map((chunk, index) =>
       `[${index}] ${chunk.section ? `섹션: ${chunk.section}\n` : ""}${chunk.content.slice(0, MAX_CONTENT_CHARS)}`,
     );
     const response = await openai().responses.create({
@@ -38,7 +53,7 @@ export async function generateSearchAliases(input: {
 본문에 없는 사실은 만들지 말고, 답변도 쓰지 마세요. 구어체·약칭·상황 설명을 섞으세요.
 반드시 각 줄을 "청크번호<TAB>표현1 | 표현2 | 표현3" 형식으로만 출력하세요.`,
       input: `문서 제목: ${input.title}\n카테고리: ${input.category}\n\n${entries.join("\n\n")}`,
-      max_output_tokens: 900,
+      max_output_tokens: 1_200,
     });
 
     success = true;

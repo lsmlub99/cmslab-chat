@@ -37,6 +37,21 @@ describe("검색 결과 재정렬", () => {
     expect(exactSection).toBeGreaterThan(generic);
   });
 
+  it("구체적인 앞쪽 검색어를 넓은 동의어보다 우선한다", () => {
+    const annualLeave = searchRankScore({
+      similarity: 0.43,
+      keywordHits: 1,
+      metadata: { section: "연차 · Q. 연차는 언제 발생하나요?" },
+    }, ["연차관련", "연차", "연차휴가", "월차", "휴가"]);
+    const maternityLeave = searchRankScore({
+      similarity: 0.45,
+      keywordHits: 1,
+      metadata: { section: "출산휴가 · Q. 유산 시에도 휴가가 부여되나요?" },
+    }, ["연차관련", "연차", "연차휴가", "월차", "휴가"]);
+
+    expect(annualLeave).toBeGreaterThan(maternityLeave);
+  });
+
   it("검색 별칭의 표현 일치를 반영한다", () => {
     expect(metadataKeywordHits({ search_aliases: ["할아버지가 돌아가셨어요", "조부상 휴가"] }, ["할아버지"]))
       .toEqual({ title: 0, section: 0, aliases: 1 });

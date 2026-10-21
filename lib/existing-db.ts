@@ -25,6 +25,7 @@ export type ExistingDocument = {
   expires_at?: string;
   authority?: "official" | "reference" | "draft";
   priority?: number;
+  reviewed_at?: string;
 };
 
 export type SearchRow = {
@@ -251,6 +252,7 @@ export async function listDocumentGroups(): Promise<ExistingDocument[]> {
            max(metadata->>'expires_at') as expires_at,
            coalesce(max(metadata->>'authority'), 'reference') as authority,
            coalesce(max((metadata->>'priority')::int), 50)::int as priority,
+           max(metadata->>'reviewed_at') as reviewed_at,
            coalesce(sum(reuse_count), 0)::int as reuse_count,
            count(*)::int as chunks,
            count(embedding)::int as embedded,
@@ -269,6 +271,7 @@ export async function listDocumentGroups(): Promise<ExistingDocument[]> {
     expires_at: row.expires_at ? String(row.expires_at) : undefined,
     authority: String(row.authority || "reference") as ExistingDocument["authority"],
     priority: Number(row.priority ?? 50),
+    reviewed_at: row.reviewed_at ? String(row.reviewed_at) : undefined,
     title: String(row.title),
     category: String(row.category),
     file_type: String(row.file_type),
@@ -294,6 +297,24 @@ export async function deleteBySourceHash(sourceHash: string) {
   const sql = database();
   const deleted = await sql`delete from public.documents where metadata->>'source_hash' = ${sourceHash} returning id`;
   return deleted.length;
+}
+
+export async function reviewDocumentGroup(id: number) {
+  const sql = database();
+  const rows = await sql`select ${sql.unsafe(GROUP_KEY)} as source_hash from public.documents where id = ${id} limit 1`;
+  if (!rows.length) throw new Error("문서를 찾지 못했습니다.");
+  const reviewedAt = new Date().toISOString();
+  const updated = await sql`
+    update public.documents
+    set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+          'reviewed_at', ${reviewedAt},
+          'reviewed_by', 'admin'
+        ),
+        updated_at = now()
+    where ${sql.unsafe(GROUP_KEY)} = ${String(rows[0].source_hash)}
+    returning id
+  `;
+  return { reviewedAt, chunks: updated.length };
 }
 
 /** 인용된 청크의 재사용 횟수를 한 번에 올립니다. */

@@ -29,6 +29,14 @@ export function governanceRankBoost(metadata: Record<string, unknown>, today = n
   return authorityBoost + priority * 0.03;
 }
 
+function orderedTermBoost(value: unknown, terms: string[], weight: number) {
+  const text = String(value ?? "").toLocaleLowerCase("ko-KR");
+  const unique = [...new Set(terms.map(term => term.trim().toLocaleLowerCase("ko-KR")).filter(term => term.length >= 2))];
+  return unique.reduce((score, term, index) => (
+    text.includes(term) ? score + weight / (index + 1) : score
+  ), 0);
+}
+
 /**
  * 코사인 유사도를 주 신호로 두고, 질문의 핵심어가 제목·섹션에 직접 있는 문서를 우대합니다.
  * 제목 가중치는 "복리후생" 질문에서 포인터 성격의 Q&A보다 실제 복리후생 문서를 먼저
@@ -36,10 +44,18 @@ export function governanceRankBoost(metadata: Record<string, unknown>, today = n
  */
 export function searchRankScore(row: RankableSearchRow, terms: string[]) {
   const metadataHits = metadataKeywordHits(row.metadata, terms);
+  const aliases = Array.isArray(row.metadata.search_aliases)
+    ? row.metadata.search_aliases.join(" ")
+    : row.metadata.search_aliases;
   return row.similarity
     + 0.03 * Math.min(row.keywordHits, 3)
-    + 0.07 * Math.min(metadataHits.title, 2)
-    + 0.04 * Math.min(metadataHits.section, 2)
-    + 0.03 * Math.min(metadataHits.aliases, 2)
+    + 0.18 * Math.min(metadataHits.title, 2)
+    + 0.12 * Math.min(metadataHits.section, 2)
+    + 0.04 * Math.min(metadataHits.aliases, 2)
+    // Expanded terms are ordered from the user's wording to broader synonyms.
+    // Reward early, specific matches so "연차" beats a generic "휴가" match.
+    + orderedTermBoost(row.metadata.title ?? row.metadata.fileName, terms, 0.12)
+    + orderedTermBoost(row.metadata.section, terms, 0.08)
+    + orderedTermBoost(aliases, terms, 0.03)
     + governanceRankBoost(row.metadata);
 }

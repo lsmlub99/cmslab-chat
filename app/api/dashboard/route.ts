@@ -213,7 +213,9 @@ export async function GET(request: Request) {
       sql`
         select count(distinct coalesce(nullif(metadata->>'source_hash', ''), 'doc:' || id::text))::int as documents
         from public.documents
-        where created_at >= ${campaignFrom} and created_at <= ${campaignTo}
+        where nullif(metadata->>'reviewed_at', '') is not null
+          and (metadata->>'reviewed_at')::timestamptz >= ${campaignFrom}
+          and (metadata->>'reviewed_at')::timestamptz <= ${campaignTo}
       `,
     ]);
 
@@ -290,7 +292,7 @@ export async function GET(request: Request) {
           { key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful, target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건", progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls) },
           { key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate, target: KPI_CAMPAIGN.targets.answeredRate, unit: "%", progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate) },
           { key: "citation_rate", label: "출처 포함률", actual: campaignCitationRate, target: KPI_CAMPAIGN.targets.citationRate, unit: "%", progress: kpiProgress(campaignCitationRate, KPI_CAMPAIGN.targets.citationRate) },
-          { key: "knowledge", label: "검증·보강 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
+          { key: "knowledge", label: "검토 완료 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
         ],
       },
       negativeReasons: negativeReasons.map(row => ({ reason: String(row.reason), count: Number(row.count) })),

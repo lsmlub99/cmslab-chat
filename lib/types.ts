@@ -27,6 +27,7 @@ export type KnowledgeDocument = {
   expires_at?: string;
   authority?: "official" | "reference" | "draft";
   priority?: number;
+  reviewed_at?: string;
 };
 
 export type DashboardTotals = {
