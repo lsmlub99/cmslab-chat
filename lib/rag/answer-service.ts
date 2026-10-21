@@ -98,11 +98,17 @@ export async function answerKnowledgeQuestion(input: {
   const citations = toCitations(rows);
   const aiStarted = Date.now();
   let rawAnswer = "";
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
 
   try {
     const stream = await streamAnswer(input.question, citations, rows, history);
     for await (const event of stream) {
       if (event.type === "response.output_text.delta") rawAnswer += event.delta;
+      if (event.type === "response.completed") {
+        inputTokens = event.response.usage?.input_tokens;
+        outputTokens = event.response.usage?.output_tokens;
+      }
       if (event.type === "response.failed" || event.type === "response.incomplete") {
         throw new Error("모델이 답변을 완료하지 못했습니다.");
       }
@@ -112,6 +118,8 @@ export async function answerKnowledgeQuestion(input: {
       model: chatModel(),
       success: true,
       latencyMs: Date.now() - aiStarted,
+      inputTokens,
+      outputTokens,
     }).catch(() => undefined);
   } catch (error) {
     await logAiCall({
@@ -119,6 +127,8 @@ export async function answerKnowledgeQuestion(input: {
       model: chatModel(),
       success: false,
       latencyMs: Date.now() - aiStarted,
+      inputTokens,
+      outputTokens,
       errorCode: errorCodeOf(error),
     }).catch(() => undefined);
     throw error;

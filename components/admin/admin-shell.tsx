@@ -241,9 +241,11 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         </div>
       </section>
 
-      <KpiGroup title="이용 현황" hint="챗봇이 실제로 쓰이고 있는지 — 성과 보고용 핵심 지표">
+      {data.campaign && <CampaignPanel campaign={data.campaign}/>}
+
+      <KpiGroup title="이용 현황" hint="기간별 운영 참고 지표 — 공식 단기 KPI는 위 목표판을 사용합니다.">
         <Kpi label="질의응답 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건 포함`}/>
-        <Kpi label="웹 사용자 수" value={`${t.users}명`} note="로그인 계정 기준"/>
+        <Kpi label="웹 사용자 수(참고)" value={`${t.users}명`} note="KPI 산정 제외 · 로그인 계정 기준"/>
         <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질의응답 ÷ 사용자"/>
         <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
       </KpiGroup>
@@ -274,15 +276,29 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
       <KpiGroup title="Slack 답봇" hint="@멘션, 앱 DM, Slackbot MCP의 중복 제거된 실제 호출">
         <Kpi label="Slack 호출 수" value={`${t.slackCalls}건`} note={`@멘션 ${t.slackMentionCalls}건 · DM ${t.slackDirectMessageCalls}건 · MCP ${t.mcpCalls}건`}/>
         <Kpi label="성공 호출" value={`${t.slackSuccessfulCalls}건`} note="정상 답변 완료"/>
-        <Kpi label="Slack 사용자" value={`${t.slackUniqueUsers}명`} note="Slack 계정 기준"/>
+        <Kpi label="Slack 사용자(참고)" value={`${t.slackUniqueUsers}명`} note="KPI 산정 제외 · Slack 계정 기준"/>
         <Kpi label="Slack 성공률" value={`${t.slackSuccessRate}%`} note={t.slackAvgResponseMs ? `평균 ${(t.slackAvgResponseMs / 1000).toFixed(1)}초` : "호출 기록 없음"}/>
       </KpiGroup>
+
+      {Boolean(data.negativeReasons?.length) && (
+        <section className="card">
+          <div className="card-head">
+            <div><h2>아쉬운 답변 원인</h2><div className="hint">부정 피드백 사유를 지식 보강 순서에 반영합니다.</div></div>
+          </div>
+          {data.negativeReasons?.map(item => (
+            <div className="topic-row" key={item.reason}>
+              <b>{feedbackReasonLabel(item.reason)}</b><span>{item.count}건</span>
+            </div>
+          ))}
+        </section>
+      )}
 
       <KpiGroup title="지식 운영" hint="지식이 쌓이고 재사용되는지">
         <Kpi label="지식 문서" value={`${t.documents}건`} note={`청크 ${t.chunks}개`}/>
         <Kpi label="검색 가능" value={`${t.embedded}개`} note={t.embedded < t.chunks ? `임베딩 누락 ${t.chunks - t.embedded}개` : "전체 임베딩 완료"} alert={t.embedded < t.chunks}/>
         <Kpi label="출처 연결" value={`${t.sourceCoverageRate}%`} note="URL이 있는 지식 청크" alert={t.sourceCoverageRate < 100}/>
         <Kpi label="섹션 구분" value={`${t.sectionCoverageRate}%`} note="제목·항목 단위 검색 기반" alert={t.sectionCoverageRate < 100}/>
+        <Kpi label="문서 책임정보" value={`${t.governanceCoverageRate}%`} note="담당·상태·시행일 등록률" alert={t.governanceCoverageRate < 100}/>
         <Kpi label="지식 재사용" value={`${t.reuse}회`} note="답변에 인용된 누적 횟수"/>
         <Kpi label="평균 근거 유사도" value={t.avgSimilarity ? t.avgSimilarity.toFixed(3) : "—"} note="높을수록 딱 맞는 근거"/>
       </KpiGroup>
@@ -358,6 +374,43 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
       </section>
     </>
   );
+}
+
+function CampaignPanel({ campaign }: { campaign: NonNullable<DashboardData["campaign"]> }) {
+  const formatDate = (value: string) => new Date(value).toLocaleDateString("ko-KR");
+  return (
+    <section className="card campaign-card">
+      <div className="card-head">
+        <div>
+          <h2>{campaign.name}</h2>
+          <div className="hint">{formatDate(campaign.from)} ~ {formatDate(campaign.to)} · {campaign.daysRemaining}일 남음</div>
+        </div>
+        <span className="status">실측 KPI</span>
+      </div>
+      <div className="notice">{campaign.note}</div>
+      <div className="kpi-grid">
+        {campaign.metrics.map(metric => (
+          <div className="kpi" key={metric.key}>
+            <span>{metric.label}</span>
+            <strong>{metric.actual}{metric.unit} / {metric.target}{metric.unit}</strong>
+            <div className="kpi-progress"><i style={{ width: `${metric.progress}%` }}/></div>
+            <em>달성률 {metric.progress}%</em>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function feedbackReasonLabel(reason: string) {
+  return ({
+    incorrect: "답변이 틀림",
+    outdated: "정보가 오래됨",
+    irrelevant: "질문과 무관함",
+    insufficient: "설명이 부족함",
+    source_issue: "근거가 부정확함",
+    unspecified: "사유 미선택(기존)",
+  } as Record<string, string>)[reason] || reason;
 }
 
 function KpiGroup({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
@@ -437,6 +490,11 @@ type EditingDocument = {
   sourceLabel: string;
   sourceUrl: string;
   chunks: number;
+  owner: string;
+  effectiveDate: string;
+  expiresAt: string;
+  authority: "official" | "reference" | "draft";
+  priority: number;
 };
 
 function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
@@ -462,6 +520,11 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
         sourceLabel: data.source_label || "",
         sourceUrl: data.source_url || "",
         chunks: data.chunks || 0,
+        owner: data.owner || "",
+        effectiveDate: data.effective_date || "",
+        expiresAt: data.expires_at || "",
+        authority: data.authority || "reference",
+        priority: data.priority ?? 50,
       });
     } catch (error) {
       onError(error instanceof Error ? error.message : "문서를 불러오지 못했습니다.");
@@ -484,6 +547,11 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
           body: editing.body,
           sourceLabel: editing.sourceLabel,
           sourceUrl: editing.sourceUrl,
+          owner: editing.owner,
+          effectiveDate: editing.effectiveDate,
+          expiresAt: editing.expiresAt,
+          authority: editing.authority,
+          priority: editing.priority,
         }),
       });
       setEditing(undefined);
@@ -534,6 +602,7 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
               <label>출처 URL</label>
               <input type="url" value={editing.sourceUrl} onChange={e => setEditing({ ...editing, sourceUrl: e.target.value })}/>
             </div>
+            <GovernanceFields value={editing} onChange={patch => setEditing({ ...editing, ...patch })}/>
           </div>
           <div className="actions">
             <button type="button" className="btn soft" onClick={() => setEditing(undefined)}>취소</button>
@@ -564,6 +633,8 @@ function KnowledgePanel({ documents, onDelete, onUpload, onSaved, onError }: {
                 <div className="meta">
                   {doc.category || "일반"} · {(doc.file_type || "text").toUpperCase()} · {doc.chunks}개 청크 ·
                   재사용 {doc.reuse_count}회
+                  {doc.owner ? ` · 담당 ${doc.owner}` : ""}
+                  {doc.authority ? ` · ${authorityLabel(doc.authority)}` : ""}
                   {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleDateString("ko-KR")}` : ""}
                 </div>
                 <span className={`badge ${missing > 0 ? "red" : ""}`}>
@@ -599,6 +670,11 @@ function UploadPanel({ onDone, onError }: { onDone: (message: string) => void; o
   const [sourceUrl, setSourceUrl] = useState("");
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File>();
+  const [owner, setOwner] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [authority, setAuthority] = useState<"official" | "reference" | "draft">("reference");
+  const [priority, setPriority] = useState(50);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -613,12 +689,17 @@ function UploadPanel({ onDone, onError }: { onDone: (message: string) => void; o
         form.append("category", category);
         form.append("sourceLabel", sourceLabel);
         form.append("sourceUrl", sourceUrl);
+        form.append("owner", owner);
+        form.append("effectiveDate", effectiveDate);
+        form.append("expiresAt", expiresAt);
+        form.append("authority", authority);
+        form.append("priority", String(priority));
         response = await fetch("/api/knowledge/upload", { method: "POST", body: form });
       } else {
         response = await fetch("/api/knowledge/text", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, category, body, sourceLabel, sourceUrl }),
+          body: JSON.stringify({ title, category, body, sourceLabel, sourceUrl, owner, effectiveDate, expiresAt, authority, priority }),
         });
       }
       const data = await response.json().catch(() => ({}));
@@ -674,6 +755,16 @@ function UploadPanel({ onDone, onError }: { onDone: (message: string) => void; o
             <label>출처 URL</label>
             <input type="url" value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://..."/>
           </div>
+          <GovernanceFields
+            value={{ owner, effectiveDate, expiresAt, authority, priority }}
+            onChange={patch => {
+              if (patch.owner !== undefined) setOwner(patch.owner);
+              if (patch.effectiveDate !== undefined) setEffectiveDate(patch.effectiveDate);
+              if (patch.expiresAt !== undefined) setExpiresAt(patch.expiresAt);
+              if (patch.authority !== undefined) setAuthority(patch.authority);
+              if (patch.priority !== undefined) setPriority(patch.priority);
+            }}
+          />
         </div>
         <div className="actions">
           <button className="btn primary" disabled={busy}>{busy ? "임베딩 생성 중…" : "지식 저장 및 청킹 시작"}</button>
@@ -681,6 +772,53 @@ function UploadPanel({ onDone, onError }: { onDone: (message: string) => void; o
       </form>
     </section>
   );
+}
+
+type GovernanceValue = {
+  owner: string;
+  effectiveDate: string;
+  expiresAt: string;
+  authority: "official" | "reference" | "draft";
+  priority: number;
+};
+
+function GovernanceFields({ value, onChange }: {
+  value: GovernanceValue;
+  onChange: (patch: Partial<GovernanceValue>) => void;
+}) {
+  return (
+    <>
+      <div className="field">
+        <label>담당 부서</label>
+        <input value={value.owner} maxLength={100} onChange={e => onChange({ owner: e.target.value })} placeholder="예: 인사팀"/>
+      </div>
+      <div className="field">
+        <label>문서 상태</label>
+        <select value={value.authority} onChange={e => onChange({ authority: e.target.value as GovernanceValue["authority"] })}>
+          <option value="official">공식</option>
+          <option value="reference">참고</option>
+          <option value="draft">초안</option>
+        </select>
+      </div>
+      <div className="field">
+        <label>시행일</label>
+        <input type="date" value={value.effectiveDate} onChange={e => onChange({ effectiveDate: e.target.value })}/>
+      </div>
+      <div className="field">
+        <label>검토 만료일</label>
+        <input type="date" value={value.expiresAt} onChange={e => onChange({ expiresAt: e.target.value })}/>
+      </div>
+      <div className="field full">
+        <label>우선순위 ({value.priority})</label>
+        <input type="range" min="0" max="100" value={value.priority} onChange={e => onChange({ priority: Number(e.target.value) })}/>
+        <div className="hint">충돌 시 공식 여부와 함께 검색 순위에 반영됩니다. 일반 50, 핵심 규정 80 이상을 권장합니다.</div>
+      </div>
+    </>
+  );
+}
+
+function authorityLabel(value: KnowledgeDocument["authority"]) {
+  return value === "official" ? "공식" : value === "draft" ? "초안" : "참고";
 }
 
 /* ── 미답변 질문 ───────────────────────────────────────────────────────────── */
@@ -771,13 +909,14 @@ function MetricsPanel({ data }: { data?: DashboardData }) {
 
   const rows = [
     ["질문 수와 재질문 수", "정량", `${t.questions}건 / 재질문 ${t.followups}건`, "chat_logs 기간 집계"],
-    ["사용자 수", "정량", `${t.users}명`, "chat_logs.user_id 고유 수"],
+    ["사용자 수(참고)", "참고", `${t.users}명`, "단기 KPI 산정에서는 제외"],
     ["만족도", "정성", t.satisfaction === null ? "응답 없음" : `${t.satisfaction}% 긍정 (${t.feedbackCount}건)`, "feedback.rating"],
     ["미답변 비율", "운영", `${t.unansweredRate}%`, "근거 부족으로 대기열에 등록된 비율"],
     ["출처 포함 답변률", "운영", `${t.citationRate}%`, "chat_log_citations 보유 답변 비율"],
     ["평균 응답 시간", "운영", t.avgResponseMs ? `${(t.avgResponseMs / 1000).toFixed(1)}초` : "기록 없음", "chat_logs.response_ms"],
     ["지식 재사용", "운영", `${t.reuse}회`, "documents.reuse_count 합계"],
     ["지식 적재량", "운영", `문서 ${t.documents}건 / 청크 ${t.chunks}개 (임베딩 ${t.embedded}개)`, "public.documents"],
+    ["문서 책임정보", "품질", `${t.governanceCoverageRate}%`, "담당 부서·문서 상태·시행일이 모두 등록된 청크"],
     ["출처 연결률", "품질", `${t.sourceCoverageRate}%`, "출처 URL 메타데이터 또는 본문 링크가 있는 청크"],
     ["섹션 구분률", "품질", `${t.sectionCoverageRate}%`, "section 메타데이터가 있는 청크"],
     ["Slack 답봇 호출", "정량", `${t.slackCalls}건 / 성공 ${t.slackSuccessfulCalls}건`, `@mention ${t.slackMentionCalls}건 + DM ${t.slackDirectMessageCalls}건 + MCP ${t.mcpCalls}건`],

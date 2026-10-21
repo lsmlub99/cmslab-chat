@@ -28,6 +28,7 @@
 .action{background:transparent;border:1px solid transparent;border-radius:7px;padding:5px 6px;color:var(--muted);display:grid;place-items:center}
 .action:hover{background:#e8edf9;color:var(--blue)}
 .action.on{color:var(--green);background:#e9f8f2}
+.feedback-reasons{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #dae1f0}.feedback-reasons span{width:100%;font-size:11px;color:var(--muted)}.feedback-reasons button{border:1px solid #d7deee;background:#fff;color:var(--text);border-radius:999px;padding:5px 8px;font-size:10.5px}.feedback-reasons button:hover{border-color:var(--blue);color:var(--blue)}
 .thinking{display:inline-flex;gap:4px;align-items:center;height:20px}
 .thinking i{width:6px;height:6px;border-radius:50%;background:#9fb0d8;animation:blink 1.3s infinite}
 .thinking i:nth-child(2){animation-delay:.18s}
@@ -47,6 +48,7 @@
 .side-admin{display:flex;align-items:center;gap:7px;background:transparent;border:0;color:#8ea1d1;font-size:12px;padding:9px 4px;width:100%}
 .side-admin:hover{color:#cbd4ea}
 .history-empty{color:#7f90bd;font-size:12px;padding:8px 10px}
+.campaign-card{border-color:#bfcbed;background:linear-gradient(135deg,#fff 0%,#f4f7ff 100%)}.kpi-progress{height:6px;background:#e4e9f4;border-radius:999px;overflow:hidden;margin:8px 0}.kpi-progress i{display:block;height:100%;background:var(--green);border-radius:999px}
 
 .login-page{min-height:100vh;display:grid;place-items:center;padding:24px}.login-card{width:100%;max-width:390px;text-align:center}.login-mark{width:44px;height:44px;margin:0 auto;border-radius:13px;background:#e3e9ff;color:var(--blue);display:grid;place-items:center}.login-title{font-size:21px;letter-spacing:-.05em;margin:15px 0 0}.login-card .hint{margin-top:8px}.login-card .field{text-align:left}.login-error{margin-top:12px;background:#fff0f2;border:1px solid #f4d3d7;color:var(--red);border-radius:9px;padding:10px 12px;font-size:12px}.login-submit{width:100%;margin-top:16px;padding:12px}
 .google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:20px;padding:13px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px;font-weight:600;color:#3c4043;transition:background .12s,border-color .12s}

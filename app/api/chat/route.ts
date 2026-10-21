@@ -272,6 +272,8 @@ export async function POST(request: Request) {
      */
     const aiStarted = Date.now();
     let aiLogged = false;
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
     const recordAiCall = async (success: boolean, errorCode?: string) => {
       if (aiLogged) return;
       aiLogged = true;
@@ -280,6 +282,8 @@ export async function POST(request: Request) {
         model: chatModel(),
         success,
         latencyMs: Date.now() - aiStarted,
+        inputTokens,
+        outputTokens,
         errorCode,
       }).catch(() => undefined);
     };
@@ -296,6 +300,9 @@ export async function POST(request: Request) {
             if (event.type === "response.output_text.delta") {
               const chunk = sanitizer.push(event.delta);
               if (chunk) send("delta", { text: chunk });
+            } else if (event.type === "response.completed") {
+              inputTokens = event.response.usage?.input_tokens;
+              outputTokens = event.response.usage?.output_tokens;
             } else if (event.type === "response.failed" || event.type === "response.incomplete") {
               throw new Error("모델이 답변을 완료하지 못했습니다.");
             }

@@ -17,6 +17,11 @@ export async function POST(request: Request) {
       buffer: Buffer.from(parsed.body, "utf8"),
       sourceLabel: parsed.sourceLabel,
       sourceUrl: parsed.sourceUrl || undefined,
+      owner: parsed.owner,
+      effectiveDate: parsed.effectiveDate || undefined,
+      expiresAt: parsed.expiresAt || undefined,
+      authority: parsed.authority,
+      priority: parsed.priority,
     });
 
     // 사용 기록: 제목이나 본문은 보내지 않습니다.

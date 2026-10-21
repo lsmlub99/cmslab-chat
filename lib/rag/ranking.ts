@@ -8,11 +8,25 @@ type RankableSearchRow = {
 export function metadataKeywordHits(metadata: Record<string, unknown>, terms: string[]) {
   const title = String(metadata.title ?? metadata.fileName ?? "").toLocaleLowerCase("ko-KR");
   const section = String(metadata.section ?? "").toLocaleLowerCase("ko-KR");
+  const aliases = Array.isArray(metadata.search_aliases)
+    ? metadata.search_aliases.join(" ").toLocaleLowerCase("ko-KR")
+    : String(metadata.search_aliases ?? "").toLocaleLowerCase("ko-KR");
   const unique = [...new Set(terms.map(term => term.trim().toLocaleLowerCase("ko-KR")).filter(term => term.length >= 2))];
   return {
     title: unique.filter(term => title.includes(term)).length,
     section: unique.filter(term => section.includes(term)).length,
+    aliases: unique.filter(term => aliases.includes(term)).length,
   };
+}
+
+export function governanceRankBoost(metadata: Record<string, unknown>, today = new Date()) {
+  const authority = String(metadata.authority ?? "reference");
+  const priority = Math.min(100, Math.max(0, Number(metadata.priority ?? 50))) / 100;
+  const expiresAt = metadata.expires_at ? new Date(String(metadata.expires_at)) : null;
+  const expired = expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() < today.getTime();
+  if (expired) return -0.2;
+  const authorityBoost = authority === "official" ? 0.05 : authority === "draft" ? -0.05 : 0;
+  return authorityBoost + priority * 0.03;
 }
 
 /**
@@ -25,5 +39,7 @@ export function searchRankScore(row: RankableSearchRow, terms: string[]) {
   return row.similarity
     + 0.03 * Math.min(row.keywordHits, 3)
     + 0.07 * Math.min(metadataHits.title, 2)
-    + 0.04 * Math.min(metadataHits.section, 2);
+    + 0.04 * Math.min(metadataHits.section, 2)
+    + 0.03 * Math.min(metadataHits.aliases, 2)
+    + governanceRankBoost(row.metadata);
 }

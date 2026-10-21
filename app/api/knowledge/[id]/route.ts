@@ -39,6 +39,11 @@ export async function GET(_: Request, context: Context) {
       source_hash: sourceHash,
       source_label: metadata.source_label ? String(metadata.source_label) : "",
       source_url: metadata.source_url ? String(metadata.source_url) : "",
+      owner: metadata.owner ? String(metadata.owner) : "",
+      effective_date: metadata.effective_date ? String(metadata.effective_date) : "",
+      expires_at: metadata.expires_at ? String(metadata.expires_at) : "",
+      authority: metadata.authority ? String(metadata.authority) : "reference",
+      priority: Number(metadata.priority ?? 50),
       chunks: chunks.length,
       body: chunks.map(chunk => String(chunk.content ?? "")).join("\n\n"),
     });
@@ -90,6 +95,11 @@ export async function PATCH(request: Request, context: Context) {
       buffer: Buffer.from(parsed.body, "utf8"),
       sourceLabel: parsed.sourceLabel,
       sourceUrl: parsed.sourceUrl || undefined,
+      owner: parsed.owner || String(metadata.owner || "") || undefined,
+      effectiveDate: parsed.effectiveDate || String(metadata.effective_date || "") || undefined,
+      expiresAt: parsed.expiresAt || String(metadata.expires_at || "") || undefined,
+      authority: parsed.authority || (String(metadata.authority || "reference") as "official" | "reference" | "draft"),
+      priority: parsed.priority ?? Number(metadata.priority ?? 50),
       // 내용이 그대로면 해시가 같습니다. 그때는 제자리 교체로 처리합니다.
       replace: true,
     });

@@ -20,6 +20,11 @@ export type ExistingDocument = {
   /** 임베딩이 채워진 청크 수. chunks 와 다르면 검색이 반쪽만 됩니다. */
   embedded: number;
   source_hash: string;
+  owner?: string;
+  effective_date?: string;
+  expires_at?: string;
+  authority?: "official" | "reference" | "draft";
+  priority?: number;
 };
 
 export type SearchRow = {
@@ -133,6 +138,7 @@ async function keywordOnlySearch(question: string, terms: string[], limit: numbe
       where d.content ilike '%' || term || '%'
          or coalesce(d.metadata->>'title', '') ilike '%' || term || '%'
          or coalesce(d.metadata->>'category', '') ilike '%' || term || '%'
+         or coalesce(d.metadata->>'search_aliases', '') ilike '%' || term || '%'
     ) m
     where m.hits > 0
        or d.content_fts @@ websearch_to_tsquery('simple', ${ftsQuery(question)})
@@ -240,6 +246,11 @@ export async function listDocumentGroups(): Promise<ExistingDocument[]> {
            coalesce(max(metadata->>'title'), max(metadata->>'fileName'), '제목 없는 지식') as title,
            coalesce(max(metadata->>'category'), '일반') as category,
            coalesce(max(metadata->>'file_type'), 'text') as file_type,
+           max(metadata->>'owner') as owner,
+           max(metadata->>'effective_date') as effective_date,
+           max(metadata->>'expires_at') as expires_at,
+           coalesce(max(metadata->>'authority'), 'reference') as authority,
+           coalesce(max((metadata->>'priority')::int), 50)::int as priority,
            coalesce(sum(reuse_count), 0)::int as reuse_count,
            count(*)::int as chunks,
            count(embedding)::int as embedded,
@@ -253,6 +264,11 @@ export async function listDocumentGroups(): Promise<ExistingDocument[]> {
   return rows.map(row => ({
     id: Number(row.id),
     source_hash: String(row.source_hash),
+    owner: row.owner ? String(row.owner) : undefined,
+    effective_date: row.effective_date ? String(row.effective_date) : undefined,
+    expires_at: row.expires_at ? String(row.expires_at) : undefined,
+    authority: String(row.authority || "reference") as ExistingDocument["authority"],
+    priority: Number(row.priority ?? 50),
     title: String(row.title),
     category: String(row.category),
     file_type: String(row.file_type),

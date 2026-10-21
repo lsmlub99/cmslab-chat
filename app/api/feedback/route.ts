@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     await sql`
       insert into public.feedback (chat_log_id, user_message, bot_answer, rating, note)
       values (${input.questionId}, ${logs[0].user_message}, ${logs[0].bot_answer},
-              ${input.rating === "positive" ? 1 : -1}, ${input.note ?? null})
+              ${input.rating === "positive" ? 1 : -1}, ${input.reason ?? input.note ?? null})
       on conflict (chat_log_id) do update set
         rating = excluded.rating,
         note = excluded.note,

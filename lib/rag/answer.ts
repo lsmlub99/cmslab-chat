@@ -27,7 +27,7 @@ export function answerInstructions() {
 - 질문과 근거가 무관하거나 답하기에 정보가 모자라면, 추측하지 말고 "${INSUFFICIENT_MARKER}" 라는 문장만 출력하세요.`;
 }
 
-export function contextFor(citations: Citation[], chunks: { content: string }[]) {
+export function contextFor(citations: Citation[], chunks: { content: string; metadata?: Record<string, unknown> }[]) {
   const parts: string[] = [];
   let used = 0;
 
@@ -39,8 +39,15 @@ export function contextFor(citations: Citation[], chunks: { content: string }[])
     if (remaining <= 200) break;
 
     const body = content.length > remaining ? `${content.slice(0, remaining)}…` : content;
+    const metadata = chunks[index]?.metadata ?? {};
     const label = [citation.title, citation.page ? `${citation.page}쪽` : ""].filter(Boolean).join(" · ");
-    parts.push(`[출처 ${index + 1}] ${label}${citation.sourceUrl ? `\nURL: ${citation.sourceUrl}` : ""}\n${body}`);
+    const governance = [
+      metadata.authority === "official" ? "공식 문서" : metadata.authority === "draft" ? "초안" : "참고 문서",
+      metadata.owner ? `담당: ${String(metadata.owner)}` : "",
+      metadata.effective_date ? `시행일: ${String(metadata.effective_date)}` : "",
+      metadata.expires_at ? `만료일: ${String(metadata.expires_at)}` : "",
+    ].filter(Boolean).join(" · ");
+    parts.push(`[출처 ${index + 1}] ${label}${governance ? `\n문서 정보: ${governance}` : ""}${citation.sourceUrl ? `\nURL: ${citation.sourceUrl}` : ""}\n${body}`);
     used += body.length;
   }
 
@@ -79,6 +86,7 @@ export async function streamAnswer(
         content: `KNOWLEDGE CONTEXT\n${contextFor(citations, chunks)}\n\nUSER QUESTION\n${question}`,
       },
     ],
+    max_output_tokens: 600,
     stream: true,
   });
 }

@@ -22,6 +22,11 @@ export type KnowledgeDocument = {
   /** 임베딩이 채워진 청크 수. chunks 보다 적으면 벡터 검색이 반쪽만 됩니다. */
   embedded?: number;
   source_hash?: string;
+  owner?: string;
+  effective_date?: string;
+  expires_at?: string;
+  authority?: "official" | "reference" | "draft";
+  priority?: number;
 };
 
 export type DashboardTotals = {
@@ -51,6 +56,8 @@ export type DashboardTotals = {
   sourceCoverageRate: number;
   /** section 메타데이터가 있는 청크 비율. */
   sectionCoverageRate: number;
+  /** 담당 부서·문서 상태·시행일이 모두 있는 청크 비율. */
+  governanceCoverageRate: number;
   /** Slackbot이 실제 실행한 ask_company_knowledge tools/call 수. */
   mcpCalls: number;
   mcpSuccessfulCalls: number;
@@ -69,6 +76,15 @@ export type DashboardTotals = {
 
 export type DashboardData = {
   range?: { from: string; to: string };
+  campaign?: {
+    name: string;
+    from: string;
+    to: string;
+    daysRemaining: number;
+    note: string;
+    metrics: { key: string; label: string; actual: number; target: number; unit: string; progress: number }[];
+  };
+  negativeReasons?: { reason: string; count: number }[];
   totals: DashboardTotals;
   series: { date: string; label: string; questions: number; answered: number }[];
   topics: { category: string; questions: number; answered: number }[];

@@ -27,6 +27,15 @@ type BootstrapData = {
   suggestions: string[];
 };
 
+type FeedbackReason = "incorrect" | "outdated" | "irrelevant" | "insufficient" | "source_issue";
+const FEEDBACK_REASONS: { id: FeedbackReason; label: string }[] = [
+  { id: "incorrect", label: "답변이 틀림" },
+  { id: "outdated", label: "정보가 오래됨" },
+  { id: "irrelevant", label: "질문과 무관함" },
+  { id: "insufficient", label: "설명이 부족함" },
+  { id: "source_issue", label: "근거가 부정확함" },
+];
+
 /** 마지막으로 보던 대화를 기억해 두었다가 새로고침 후 복원합니다. */
 const LAST_CONVERSATION_KEY = "answerbot:last-conversation";
 /** 사용 기록의 "앱 실행"을 브라우저 세션당 한 번만 세기 위한 표시입니다. */
@@ -39,6 +48,7 @@ export default function ChatShell() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<Record<number, string>>({});
+  const [feedbackPrompt, setFeedbackPrompt] = useState<number>();
   const [settings, setSettings] = useState<Settings>();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -269,12 +279,13 @@ export default function ChatShell() {
     void loadSidebar();
   }
 
-  async function rate(questionId: number, rating: "positive" | "negative") {
+  async function rate(questionId: number, rating: "positive" | "negative", reason?: FeedbackReason) {
     setFeedback(current => ({ ...current, [questionId]: rating }));
+    setFeedbackPrompt(undefined);
     await fetch("/api/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questionId, rating }),
+      body: JSON.stringify({ questionId, rating, reason }),
     }).catch(() => undefined);
   }
 
@@ -433,20 +444,31 @@ export default function ChatShell() {
                         <>
                           <button
                             className={`action ${feedback[message.questionId] === "positive" ? "on" : ""}`}
-                            onClick={() => rate(message.questionId!, "positive")}
+                            onClick={() => void rate(message.questionId!, "positive")}
                             aria-label="도움이 됐어요"
                           >
                             <ThumbsUp size={13}/>
                           </button>
                           <button
                             className={`action ${feedback[message.questionId] === "negative" ? "on" : ""}`}
-                            onClick={() => rate(message.questionId!, "negative")}
+                            onClick={() => setFeedbackPrompt(message.questionId)}
                             aria-label="아쉬워요"
                           >
                             <ThumbsDown size={13}/>
                           </button>
                         </>
                       )}
+                    </div>
+                  )}
+                  {message.questionId && feedbackPrompt === message.questionId && (
+                    <div className="feedback-reasons">
+                      <span>어떤 점이 아쉬웠나요?</span>
+                      {FEEDBACK_REASONS.map(reason => (
+                        <button key={reason.id} onClick={() => void rate(message.questionId!, "negative", reason.id)}>
+                          {reason.label}
+                        </button>
+                      ))}
+                      <button onClick={() => setFeedbackPrompt(undefined)}>취소</button>
                     </div>
                   )}
                 </div>

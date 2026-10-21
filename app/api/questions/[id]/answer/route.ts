@@ -40,6 +40,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       buffer: Buffer.from(body, "utf8"),
       sourceLabel: parsed.sourceLabel,
       sourceUrl: parsed.sourceUrl || undefined,
+      owner: "관리자 확인",
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      authority: "official",
+      priority: 80,
       replace: true,
     });
 

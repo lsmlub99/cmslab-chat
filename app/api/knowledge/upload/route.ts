@@ -37,6 +37,11 @@ export async function POST(request: Request) {
       buffer: Buffer.from(await file.arrayBuffer()),
       sourceLabel: text(form.get("sourceLabel")) || undefined,
       sourceUrl: text(form.get("sourceUrl")) || undefined,
+      owner: text(form.get("owner")) || undefined,
+      effectiveDate: date(form.get("effectiveDate")),
+      expiresAt: date(form.get("expiresAt")),
+      authority: authority(form.get("authority")),
+      priority: priority(form.get("priority")),
       // 일괄 적재 스크립트가 기존 문서를 갱신할 때 씁니다.
       replace: text(form.get("replace")) === "true",
     });
@@ -56,4 +61,19 @@ export async function POST(request: Request) {
 
 function text(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function date(value: FormDataEntryValue | null) {
+  const parsed = text(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(parsed) ? parsed : undefined;
+}
+
+function authority(value: FormDataEntryValue | null): "official" | "reference" | "draft" {
+  const parsed = text(value);
+  return parsed === "official" || parsed === "draft" ? parsed : "reference";
+}
+
+function priority(value: FormDataEntryValue | null) {
+  const parsed = Number(text(value));
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(0, Math.round(parsed))) : 50;
 }

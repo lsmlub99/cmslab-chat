@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { database, hasDatabaseConfig } from "@/lib/database";
+import { KPI_CAMPAIGN, kpiProgress } from "@/lib/kpi";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -90,6 +91,11 @@ export async function GET(request: Request) {
                  where nullif(metadata->>'source_url', '') is not null or content ~* 'https?://'
                )::int as source_covered,
                count(*) filter (where nullif(metadata->>'section', '') is not null)::int as section_covered,
+               count(*) filter (
+                 where nullif(metadata->>'owner', '') is not null
+                   and nullif(metadata->>'authority', '') is not null
+                   and nullif(metadata->>'effective_date', '') is not null
+               )::int as governance_covered,
                coalesce(sum(reuse_count), 0)::int as reuse
         from public.documents
       `,
@@ -101,6 +107,14 @@ export async function GET(request: Request) {
              count(*) filter (where rating > 0)::int as positive
       from public.feedback
       where created_at >= ${from} and created_at <= ${to}
+    `;
+
+    const negativeReasons = await sql`
+      select coalesce(nullif(note, ''), 'unspecified') as reason, count(*)::int as count
+      from public.feedback
+      where created_at >= ${from} and created_at <= ${to} and rating < 0
+      group by 1
+      order by count desc, reason
     `;
 
     const pending = await sql`
@@ -184,10 +198,50 @@ export async function GET(request: Request) {
       // 아직 005/006 Slack 마이그레이션을 적용하지 않은 배포를 위한 호환 경로입니다.
     }
 
+    const campaignFrom = new Date(KPI_CAMPAIGN.from);
+    const campaignTo = new Date(KPI_CAMPAIGN.to);
+    const [campaignChat, campaignDocuments] = await Promise.all([
+      sql`
+        select count(*)::int as questions,
+               count(*) filter (where not coalesce(is_fallback, false))::int as answered,
+               count(*) filter (where not coalesce(is_fallback, false) and coalesce(citation_count, 0) > 0)::int as with_citation
+        from public.chat_logs
+        where created_at >= ${campaignFrom} and created_at <= ${campaignTo}
+          and coalesce(category, '') <> 'blocked'
+          and interaction_source in ('slack_mcp', 'slack_mention', 'slack_dm')
+      `,
+      sql`
+        select count(distinct coalesce(nullif(metadata->>'source_hash', ''), 'doc:' || id::text))::int as documents
+        from public.documents
+        where created_at >= ${campaignFrom} and created_at <= ${campaignTo}
+      `,
+    ]);
+
+    let campaignSlackSuccessful = 0;
+    try {
+      const rows = await sql`
+        select count(*) filter (where status = 'succeeded')::int as successful
+        from (
+          select status, created_at from public.mcp_tool_calls
+          union all
+          select status, created_at from public.slack_bot_calls
+        ) calls
+        where created_at >= ${campaignFrom} and created_at <= ${campaignTo}
+      `;
+      campaignSlackSuccessful = Number(rows[0].successful);
+    } catch {
+      // Slack 집계 테이블이 없는 초기 배포에서는 0으로 표시합니다.
+    }
+
     const row = totals[0];
     const questions = Number(row.questions);
     const answered = Number(row.answered);
     const totalFeedback = Number(feedback[0].total);
+    const campaignQuestions = Number(campaignChat[0].questions);
+    const campaignAnswered = Number(campaignChat[0].answered);
+    const campaignKnowledgeDocuments = Number(campaignDocuments[0].documents);
+    const campaignAnsweredRate = percent(campaignAnswered, campaignQuestions);
+    const campaignCitationRate = percent(Number(campaignChat[0].with_citation), campaignAnswered);
 
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -212,6 +266,7 @@ export async function GET(request: Request) {
         embedded: Number(documents[0].embedded),
         sourceCoverageRate: percent(Number(documents[0].source_covered), Number(documents[0].chunks)),
         sectionCoverageRate: percent(Number(documents[0].section_covered), Number(documents[0].chunks)),
+        governanceCoverageRate: percent(Number(documents[0].governance_covered), Number(documents[0].chunks)),
         mcpCalls: mcp.calls,
         mcpSuccessfulCalls: mcp.successful,
         mcpUniqueUsers: mcp.users,
@@ -225,6 +280,20 @@ export async function GET(request: Request) {
         slackSuccessRate: percent(slack.successful, slack.calls),
         slackAvgResponseMs: slack.avgResponseMs,
       },
+      campaign: {
+        name: KPI_CAMPAIGN.name,
+        from: KPI_CAMPAIGN.from,
+        to: KPI_CAMPAIGN.to,
+        daysRemaining: Math.max(0, Math.ceil((campaignTo.getTime() - Date.now()) / 86_400_000)),
+        note: "주간 고유 사용자 수는 KPI에서 제외하며, 캠페인 기간의 실제 Slack 답변과 품질만 집계합니다.",
+        metrics: [
+          { key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful, target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건", progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls) },
+          { key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate, target: KPI_CAMPAIGN.targets.answeredRate, unit: "%", progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate) },
+          { key: "citation_rate", label: "출처 포함률", actual: campaignCitationRate, target: KPI_CAMPAIGN.targets.citationRate, unit: "%", progress: kpiProgress(campaignCitationRate, KPI_CAMPAIGN.targets.citationRate) },
+          { key: "knowledge", label: "검증·보강 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
+        ],
+      },
+      negativeReasons: negativeReasons.map(row => ({ reason: String(row.reason), count: Number(row.count) })),
       series: series.map(item => ({
         date: String(item.date),
         label: String(item.label),
