@@ -4,6 +4,7 @@ import { ingestKnowledge } from "@/lib/rag/ingest";
 import { database } from "@/lib/database";
 import { editKnowledgeSchema } from "@/lib/validation";
 import { logUserAction } from "@/lib/server/telemetry.server";
+import { reconstructDocument } from "@/lib/rag/reconstruct";
 
 export const runtime = "nodejs";
 // Vercel 무료(Hobby) 플랜 상한이 60초입니다.
@@ -45,7 +46,10 @@ export async function GET(_: Request, context: Context) {
       authority: metadata.authority ? String(metadata.authority) : "reference",
       priority: Number(metadata.priority ?? 50),
       chunks: chunks.length,
-      body: chunks.map(chunk => String(chunk.content ?? "")).join("\n\n"),
+      // Stored chunks intentionally overlap for retrieval. Reconstruct the
+      // original body before showing it in the editor so saving an edit does
+      // not persist the overlap as duplicated text.
+      body: reconstructDocument(chunks.map(chunk => String(chunk.content ?? ""))),
     });
   } catch (error) {
     return NextResponse.json(
