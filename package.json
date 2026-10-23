@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "ingest": "node scripts/ingest-folder.mjs",
+    "evaluate:synthetic": "node scripts/run-synthetic-evaluation.mjs",
     "fix-legacy": "node scripts/fix-legacy-data.mjs"
   },
   "dependencies": {

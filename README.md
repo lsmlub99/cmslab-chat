@@ -35,6 +35,11 @@ npx next dev
 프로젝트 KPI는 2026-08-25~2026-10-25 실제 기록만 사용하며, 주간 고유 사용자 수는 산정에서 제외합니다.
 문서 KPI는 재업로드 횟수가 아니라 관리자가 실제로 `검토 완료` 처리한 문서만 집계합니다.
 
+내부 데모용 예상 질의 검증은 실사용 로그와 분리합니다. `009_synthetic_evaluations.sql`을
+적용한 뒤 `npm run evaluate:synthetic`을 실행하면 60개 질문을 실제 임베딩·검색으로 검사하고
+`public.synthetic_evaluations`에 결과를 저장합니다. 관리자 대시보드에는 같은 화면에서 보이지만
+항상 `내부 시뮬레이션 · KPI 제외`로 표시되며 `chat_logs`와 Slack KPI에는 합산되지 않습니다.
+
 API 키는 서버 라우트에서만 사용하며 브라우저로 전달하지 않습니다.
 
 ## Slackbot MCP 연결

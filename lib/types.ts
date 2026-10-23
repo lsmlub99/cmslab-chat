@@ -85,6 +85,28 @@ export type DashboardData = {
     metrics: { key: string; label: string; actual: number; target: number; unit: string; progress: number }[];
   };
   negativeReasons?: { reason: string; count: number }[];
+  /** 실제 이용과 분리된 내부 예상 질의 검색 검증입니다. KPI에는 포함하지 않습니다. */
+  syntheticEvaluation?: {
+    total: number;
+    passed: number;
+    failed: number;
+    needsKnowledge: number;
+    passRate: number;
+    sourceRate: number;
+    avgRetrievalMs: number;
+    evaluatedAt: string | null;
+    topics: { topic: string; total: number; passed: number }[];
+    items: {
+      key: string;
+      question: string;
+      topic: string;
+      status: "passed" | "failed" | "needs_knowledge";
+      matchedSource: string | null;
+      evidencePreview: string | null;
+      similarity: number | null;
+      retrievalMs: number | null;
+    }[];
+  };
   totals: DashboardTotals;
   series: { date: string; label: string; questions: number; answered: number }[];
   topics: { category: string; questions: number; answered: number }[];

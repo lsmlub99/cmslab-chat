@@ -198,6 +198,89 @@ export async function GET(request: Request) {
       // 아직 005/006 Slack 마이그레이션을 적용하지 않은 배포를 위한 호환 경로입니다.
     }
 
+    // 내부 예상 질의 검증은 실사용 로그와 별도 테이블에서 읽습니다.
+    // 마이그레이션 적용 전에도 기존 대시보드는 그대로 열리도록 선택 항목으로 둡니다.
+    let syntheticEvaluation: {
+      total: number;
+      passed: number;
+      failed: number;
+      needsKnowledge: number;
+      passRate: number;
+      sourceRate: number;
+      avgRetrievalMs: number;
+      evaluatedAt: string | null;
+      topics: { topic: string; total: number; passed: number }[];
+      items: {
+        key: string;
+        question: string;
+        topic: string;
+        status: "passed" | "failed" | "needs_knowledge";
+        matchedSource: string | null;
+        evidencePreview: string | null;
+        similarity: number | null;
+        retrievalMs: number | null;
+      }[];
+    } | undefined;
+    try {
+      const [summaryRows, topicRows, itemRows] = await Promise.all([
+        sql`
+          select count(*)::int as total,
+                 count(*) filter (where status = 'passed')::int as passed,
+                 count(*) filter (where status = 'failed')::int as failed,
+                 count(*) filter (where status = 'needs_knowledge')::int as needs_knowledge,
+                 count(*) filter (where nullif(matched_source, '') is not null)::int as with_source,
+                 coalesce(avg(retrieval_ms), 0)::int as avg_retrieval_ms,
+                 max(evaluated_at) as evaluated_at
+          from public.synthetic_evaluations
+          where synthetic = true
+        `,
+        sql`
+          select topic, count(*)::int as total,
+                 count(*) filter (where status = 'passed')::int as passed
+          from public.synthetic_evaluations
+          where synthetic = true
+          group by topic
+          order by count(*) desc, topic
+        `,
+        sql`
+          select scenario_key, question, topic, status, matched_source,
+                 evidence_preview, similarity, retrieval_ms
+          from public.synthetic_evaluations
+          where synthetic = true
+          order by topic, scenario_key
+        `,
+      ]);
+      const summary = summaryRows[0];
+      const total = Number(summary.total);
+      syntheticEvaluation = {
+        total,
+        passed: Number(summary.passed),
+        failed: Number(summary.failed),
+        needsKnowledge: Number(summary.needs_knowledge),
+        passRate: percent(Number(summary.passed), total),
+        sourceRate: percent(Number(summary.with_source), total),
+        avgRetrievalMs: Number(summary.avg_retrieval_ms),
+        evaluatedAt: summary.evaluated_at instanceof Date
+          ? summary.evaluated_at.toISOString()
+          : summary.evaluated_at ? String(summary.evaluated_at) : null,
+        topics: topicRows.map(row => ({
+          topic: String(row.topic), total: Number(row.total), passed: Number(row.passed),
+        })),
+        items: itemRows.map(row => ({
+          key: String(row.scenario_key),
+          question: String(row.question),
+          topic: String(row.topic),
+          status: String(row.status) as "passed" | "failed" | "needs_knowledge",
+          matchedSource: row.matched_source ? String(row.matched_source) : null,
+          evidencePreview: row.evidence_preview ? String(row.evidence_preview) : null,
+          similarity: row.similarity === null ? null : Number(row.similarity),
+          retrievalMs: row.retrieval_ms === null ? null : Number(row.retrieval_ms),
+        })),
+      };
+    } catch {
+      // 009 마이그레이션 적용 전 호환 경로입니다.
+    }
+
     const campaignFrom = new Date(KPI_CAMPAIGN.from);
     const campaignTo = new Date(KPI_CAMPAIGN.to);
     const [campaignChat, campaignDocuments] = await Promise.all([
@@ -294,6 +377,7 @@ export async function GET(request: Request) {
           { key: "knowledge", label: "검토 완료 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
         ],
       },
+      syntheticEvaluation,
       negativeReasons: negativeReasons.map(row => ({ reason: String(row.reason), count: Number(row.count) })),
       series: series.map(item => ({
         date: String(item.date),

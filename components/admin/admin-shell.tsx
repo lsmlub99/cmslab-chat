@@ -243,6 +243,10 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
 
       {data.campaign && <CampaignPanel campaign={data.campaign}/>}
 
+      {data.syntheticEvaluation && data.syntheticEvaluation.total > 0 && (
+        <SyntheticEvaluationPanel evaluation={data.syntheticEvaluation}/>
+      )}
+
       <KpiGroup title="이용 현황" hint="기간별 운영 참고 지표 — 공식 단기 KPI는 위 목표판을 사용합니다.">
         <Kpi label="질의응답 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건 포함`}/>
         <Kpi label="웹 사용자 수(참고)" value={`${t.users}명`} note="KPI 산정 제외 · 로그인 계정 기준"/>
@@ -373,6 +377,70 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
         )}
       </section>
     </>
+  );
+}
+
+function SyntheticEvaluationPanel({ evaluation }: {
+  evaluation: NonNullable<DashboardData["syntheticEvaluation"]>;
+}) {
+  const statusLabel = (status: typeof evaluation.items[number]["status"]) => (
+    status === "passed" ? "검색 통과" : status === "failed" ? "검색 보강" : "지식 필요"
+  );
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <h2>예상 질의 품질검증</h2>
+          <div className="hint">
+            등록 지식에서 나올 법한 질문을 실제 임베딩·검색으로 검증한 내부 시뮬레이션입니다.
+            {evaluation.evaluatedAt ? ` · 최근 실행 ${new Date(evaluation.evaluatedAt).toLocaleDateString("ko-KR")}` : ""}
+          </div>
+        </div>
+        <span className="status">내부 시뮬레이션 · KPI 제외</span>
+      </div>
+      <div className="notice">
+        아래 {evaluation.total}건은 실제 직원 대화가 아닌 합성 질문이며, 실사용·Slack KPI에는 합산되지 않습니다.
+      </div>
+      <div className="kpi-grid">
+        <div className="kpi"><span>검증 시나리오</span><strong>{evaluation.total}건</strong><em>{evaluation.topics.length}개 주제</em></div>
+        <div className="kpi"><span>기대 문서 검색 통과</span><strong>{evaluation.passRate}%</strong><em>{evaluation.passed}건 통과 · {evaluation.failed}건 보강</em></div>
+        <div className="kpi"><span>검색 근거 연결</span><strong>{evaluation.sourceRate}%</strong><em>상위 검색 문서가 있는 비율</em></div>
+        <div className="kpi"><span>추가 지식 필요</span><strong>{evaluation.needsKnowledge}건</strong><em>운영자 확인 후 등록</em></div>
+      </div>
+      <div style={{ marginTop: 18 }}>
+        {evaluation.topics.map(topic => (
+          <div className="topic-row" key={topic.topic}>
+            <b>{topic.topic}</b><span>{topic.total}건 · 검색 통과 {topic.passed}건</span>
+          </div>
+        ))}
+      </div>
+      <details style={{ marginTop: 18 }}>
+        <summary className="btn soft" style={{ display: "inline-block", listStyle: "none" }}>
+          60개 검증 질문과 근거 보기
+        </summary>
+        <div className="list" style={{ marginTop: 14 }}>
+          {evaluation.items.map(item => (
+            <article className={`question ${item.status === "passed" ? "" : "unanswered"}`} key={item.key}>
+              <div className="question-title">{item.question}</div>
+              <div className="meta">
+                합성 시나리오 · {item.topic}
+                {item.retrievalMs !== null ? ` · 검색 ${item.retrievalMs}ms` : ""}
+                {item.similarity !== null ? ` · 유사도 ${item.similarity.toFixed(3)}` : ""}
+              </div>
+              {item.evidencePreview && (
+                <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{item.evidencePreview}</div>
+              )}
+              {item.matchedSource && (
+                <div className="citations" style={{ marginTop: 10 }}>
+                  <span className="citation">검색 근거: {item.matchedSource}</span>
+                </div>
+              )}
+              <span className={`badge ${item.status === "passed" ? "" : "red"}`}>{statusLabel(item.status)}</span>
+            </article>
+          ))}
+        </div>
+      </details>
+    </section>
   );
 }
 
