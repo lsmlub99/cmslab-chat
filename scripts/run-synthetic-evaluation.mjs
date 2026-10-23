@@ -65,7 +65,8 @@ try {
     const expected = scenario.expectedSource
       ? rows.find(row => String(row.metadata?.title || row.metadata?.fileName || "").includes(scenario.expectedSource))
       : null;
-    const selected = expected || rows[0] || null;
+    // 문서가 없다고 명시한 갭 시나리오에는 우연히 가까운 무관 문서를 근거처럼 저장하지 않습니다.
+    const selected = scenario.expectedSource ? expected || rows[0] || null : null;
     const similarity = selected ? Number(selected.similarity || 0) : null;
     const keywordHits = selected ? Number(selected.keyword_hits || 0) : 0;
     const status = !scenario.expectedSource
