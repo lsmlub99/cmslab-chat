@@ -383,7 +383,7 @@ function CampaignPanel({ campaign }: { campaign: NonNullable<DashboardData["camp
       <div className="card-head">
         <div>
           <h2>{campaign.name}</h2>
-          <div className="hint">{formatDate(campaign.from)} ~ {formatDate(campaign.to)} · {campaign.daysRemaining}일 남음</div>
+          <div className="hint">{formatDate(campaign.from)} ~ {formatDate(campaign.to)}</div>
         </div>
         <span className="status">실측 KPI</span>
       </div>

@@ -81,7 +81,6 @@ export type DashboardData = {
     name: string;
     from: string;
     to: string;
-    daysRemaining: number;
     note: string;
     metrics: { key: string; label: string; actual: number; target: number; unit: string; progress: number }[];
   };

@@ -286,8 +286,7 @@ export async function GET(request: Request) {
         name: KPI_CAMPAIGN.name,
         from: KPI_CAMPAIGN.from,
         to: KPI_CAMPAIGN.to,
-        daysRemaining: Math.max(0, Math.ceil((campaignTo.getTime() - Date.now()) / 86_400_000)),
-        note: "주간 고유 사용자 수는 KPI에서 제외하며, 캠페인 기간의 실제 Slack 답변과 품질만 집계합니다.",
+        note: "프로젝트 기간의 실제 Slack 답변과 품질을 집계하며, 주간 고유 사용자 수는 KPI에서 제외합니다.",
         metrics: [
           { key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful, target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건", progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls) },
           { key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate, target: KPI_CAMPAIGN.targets.answeredRate, unit: "%", progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate) },
