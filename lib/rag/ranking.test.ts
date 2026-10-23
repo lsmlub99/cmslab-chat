@@ -57,6 +57,23 @@ describe("검색 결과 재정렬", () => {
       .toEqual({ title: 0, section: 0, aliases: 1 });
   });
 
+  it("사용자 표현이 본문에 직접 있으면 의미만 비슷한 결과보다 우선한다", () => {
+    const exactBody = searchRankScore({
+      content: "점심시간은 12시부터 13시까지입니다.",
+      similarity: 0.42,
+      keywordHits: 1,
+      metadata: { title: "복리후생" },
+    }, ["점심시간"]);
+    const semanticOnly = searchRankScore({
+      content: "육아기 근로시간 단축 제도를 안내합니다.",
+      similarity: 0.47,
+      keywordHits: 0,
+      metadata: { title: "인사행정_Q&A" },
+    }, ["점심시간"]);
+
+    expect(exactBody).toBeGreaterThan(semanticOnly);
+  });
+
   it("공식 문서는 우대하고 만료 문서는 낮춘다", () => {
     expect(governanceRankBoost({ authority: "official", priority: 80 }, new Date("2026-10-21"))).toBeGreaterThan(0);
     expect(governanceRankBoost({ authority: "official", expires_at: "2025-01-01" }, new Date("2026-10-21"))).toBe(-0.2);

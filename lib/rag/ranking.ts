@@ -1,4 +1,5 @@
 type RankableSearchRow = {
+  content?: string;
   similarity: number;
   keywordHits: number;
   metadata: Record<string, unknown>;
@@ -57,5 +58,8 @@ export function searchRankScore(row: RankableSearchRow, terms: string[]) {
     + orderedTermBoost(row.metadata.title ?? row.metadata.fileName, terms, 0.12)
     + orderedTermBoost(row.metadata.section, terms, 0.08)
     + orderedTermBoost(aliases, terms, 0.03)
+    // DB의 RRF 상위 일부만으로 자르면 정확한 본문 일치가 의미 검색 결과에 밀릴 수 있습니다.
+    // 사용자가 실제로 쓴 표현을 본문에서 찾은 경우에는 작게 우대합니다.
+    + orderedTermBoost(row.content, terms, 0.08)
     + governanceRankBoost(row.metadata);
 }

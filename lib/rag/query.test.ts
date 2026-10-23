@@ -63,6 +63,11 @@ describe("keywordTerms", () => {
     expect(keywordTerms("휴가는 어떻게 돼냐 좀 알려줘"))
       .not.toEqual(expect.arrayContaining(["어떻게", "돼냐", "좀"]));
   });
+
+  it("질문 표현에 오타가 있어도 앞의 업무 주제어를 유지한다", () => {
+    expect(keywordTerms("점심시간은 어덣게 되나요?"))
+      .toEqual(expect.arrayContaining(["점심시간"]));
+  });
 });
 
 describe("ftsQuery", () => {

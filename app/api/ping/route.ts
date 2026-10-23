@@ -23,7 +23,11 @@ export async function GET() {
   try {
     await database()`select 1`;
     return NextResponse.json(
-      { ok: true, ms: Date.now() - started },
+      {
+        ok: true,
+        ms: Date.now() - started,
+        version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {

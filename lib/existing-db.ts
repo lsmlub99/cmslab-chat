@@ -37,6 +37,8 @@ export type SearchRow = {
   matchedLexically: boolean;
   /** 질문에서 뽑은 키워드 중 이 청크에 걸린 개수. */
   keywordHits: number;
+  /** 네 글자 이상의 구체적인 검색어가 본문/메타데이터에 직접 일치하는지. */
+  specificLexicalMatch?: boolean;
 };
 
 type RawSearchRow = {
@@ -58,7 +60,9 @@ export const STRONG_KEYWORD_HITS = 2;
 
 /** 청크가 근거로 쓸 만한지 — 유사도가 높거나, 키워드가 여러 개 걸렸거나. */
 export function isStrongMatch(row: SearchRow, threshold: number) {
-  return row.similarity >= threshold || row.keywordHits >= STRONG_KEYWORD_HITS;
+  return row.similarity >= threshold
+    || row.keywordHits >= STRONG_KEYWORD_HITS
+    || Boolean(row.specificLexicalMatch);
 }
 
 /**
@@ -93,7 +97,7 @@ async function runSearch(embedding: number[], question: string, terms: string[],
       ${toVector(embedding)}::vector,
       ${ftsQuery(question)},
       ${terms}::text[],
-      ${limit * 3},
+      ${Math.max(limit * 3, CANDIDATE_COUNT * 3)},
       ${CANDIDATE_COUNT}
     )
   `) as unknown as RawSearchRow[];
@@ -139,6 +143,7 @@ async function keywordOnlySearch(question: string, terms: string[], limit: numbe
       where d.content ilike '%' || term || '%'
          or coalesce(d.metadata->>'title', '') ilike '%' || term || '%'
          or coalesce(d.metadata->>'category', '') ilike '%' || term || '%'
+         or coalesce(d.metadata->>'section', '') ilike '%' || term || '%'
          or coalesce(d.metadata->>'search_aliases', '') ilike '%' || term || '%'
     ) m
     where m.hits > 0
@@ -175,7 +180,9 @@ function rankAndTrim(
 
     const keywordHits = Number(row.keyword_hits ?? 0);
     const similarity = Number(row.similarity ?? 0);
-    if (similarity < CANDIDATE_THRESHOLD && keywordHits < minKeywordHits) continue;
+    const metadata = asMetadata(row.metadata);
+    const specificLexicalMatch = hasSpecificLexicalMatch(content, metadata, terms);
+    if (similarity < CANDIDATE_THRESHOLD && keywordHits < minKeywordHits && !specificLexicalMatch) continue;
 
     const fingerprint = content.replace(/\s+/g, "").slice(0, 120);
     if (seen.has(fingerprint)) continue;
@@ -184,16 +191,32 @@ function rankAndTrim(
     candidates.push({
       id: Number(row.id),
       content,
-      metadata: asMetadata(row.metadata),
+      metadata,
       similarity,
       matchedLexically: Boolean(row.matched_lexically),
       keywordHits,
+      specificLexicalMatch,
     });
   }
 
   return candidates
     .sort((a, b) => searchRankScore(b, terms) - searchRankScore(a, terms))
     .slice(0, limit);
+}
+
+/** 흔한 두 글자보다 오탐이 적은 구체 표현은 한 번의 일치만으로도 근거 후보로 인정합니다. */
+function hasSpecificLexicalMatch(content: string, metadata: Record<string, unknown>, terms: string[]) {
+  const searchable = [
+    content,
+    metadata.title,
+    metadata.fileName,
+    metadata.category,
+    metadata.section,
+    Array.isArray(metadata.search_aliases) ? metadata.search_aliases.join(" ") : metadata.search_aliases,
+  ].map(value => String(value ?? "").toLocaleLowerCase("ko-KR")).join(" ");
+
+  return [...new Set(terms)]
+    .some(term => term.trim().length >= 4 && searchable.includes(term.trim().toLocaleLowerCase("ko-KR")));
 }
 
 /** pgvector 는 '[0.1,0.2,...]' 형태의 문자열을 vector 로 캐스팅합니다. */
