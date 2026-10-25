@@ -60,7 +60,7 @@ export default function AdminShell() {
     const query = from && to
       ? `?from=${encodeURIComponent(`${from}T00:00:00.000+09:00`)}&to=${encodeURIComponent(`${to}T23:59:59.999+09:00`)}`
       : "?days=30";
-    try { setDashboard(await getJson(`/api/dashboard${query}`)); }
+    try { setDashboard(await getJson(`/api/dashboard${query}`, { cache: "no-store" })); }
     catch (error) { setSetupError(error instanceof Error ? error.message : "지표를 불러오지 못했습니다."); }
   }, []);
 
@@ -243,9 +243,9 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
 
       {data.campaign && <CampaignPanel campaign={data.campaign}/>}
 
-      <KpiGroup title="이용 현황" hint="기간별 운영 참고 지표 — 공식 단기 KPI는 위 목표판을 사용합니다.">
+      <KpiGroup title="이용 현황" hint="선택한 조회 기간의 실제 운영 기록입니다.">
         <Kpi label="질의응답 수" value={`${t.questions}건`} note={`재질문 ${t.followups}건 포함`}/>
-        <Kpi label="웹 사용자 수(참고)" value={`${t.users}명`} note="KPI 산정 제외 · 로그인 계정 기준"/>
+        <Kpi label="웹 사용자 수(참고)" value={`${t.users}명`} note="로그인 계정 기준"/>
         <Kpi label="1인당 질문" value={t.users ? `${(t.questions / t.users).toFixed(1)}건` : "—"} note="질의응답 ÷ 사용자"/>
         <Kpi label="미답변 대기" value={`${t.pending}건`} note={t.pending ? "지식 등록 필요" : "대기 없음"} alert={t.pending > 0}/>
       </KpiGroup>
@@ -276,7 +276,7 @@ function Overview({ data, onRefresh }: { data?: DashboardData; onRefresh: (from?
       <KpiGroup title="Slack 답봇" hint="@멘션, 앱 DM, Slackbot MCP의 중복 제거된 실제 호출">
         <Kpi label="Slack 호출 수" value={`${t.slackCalls}건`} note={`@멘션 ${t.slackMentionCalls}건 · DM ${t.slackDirectMessageCalls}건 · MCP ${t.mcpCalls}건`}/>
         <Kpi label="성공 호출" value={`${t.slackSuccessfulCalls}건`} note="정상 답변 완료"/>
-        <Kpi label="Slack 사용자(참고)" value={`${t.slackUniqueUsers}명`} note="KPI 산정 제외 · Slack 계정 기준"/>
+        <Kpi label="Slack 사용자(참고)" value={`${t.slackUniqueUsers}명`} note="Slack 계정 기준"/>
         <Kpi label="Slack 성공률" value={`${t.slackSuccessRate}%`} note={t.slackAvgResponseMs ? `평균 ${(t.slackAvgResponseMs / 1000).toFixed(1)}초` : "호출 기록 없음"}/>
       </KpiGroup>
 
@@ -385,16 +385,16 @@ function CampaignPanel({ campaign }: { campaign: NonNullable<DashboardData["camp
           <h2>{campaign.name}</h2>
           <div className="hint">{formatDate(campaign.from)} ~ {formatDate(campaign.to)}</div>
         </div>
-        <span className="status">실측 KPI</span>
+        <span className="status">운영 현황</span>
       </div>
-      <div className="notice">{campaign.note}</div>
+      {campaign.note && <div className="notice">{campaign.note}</div>}
       <div className="kpi-grid">
         {campaign.metrics.map(metric => (
           <div className="kpi" key={metric.key}>
             <span>{metric.label}</span>
             <strong>{metric.actual}{metric.unit} / {metric.target}{metric.unit}</strong>
             <div className="kpi-progress"><i style={{ width: `${metric.progress}%` }}/></div>
-            <em>달성률 {metric.progress}%</em>
+            <em>진행률 {metric.progress}%</em>
           </div>
         ))}
       </div>
@@ -949,7 +949,7 @@ function MetricsPanel({ data }: { data?: DashboardData }) {
 
   const rows = [
     ["질문 수와 재질문 수", "정량", `${t.questions}건 / 재질문 ${t.followups}건`, "chat_logs 기간 집계"],
-    ["사용자 수(참고)", "참고", `${t.users}명`, "단기 KPI 산정에서는 제외"],
+    ["사용자 수(참고)", "참고", `${t.users}명`, "로그인 계정 기준 참고 지표"],
     ["만족도", "정성", t.satisfaction === null ? "응답 없음" : `${t.satisfaction}% 긍정 (${t.feedbackCount}건)`, "feedback.rating"],
     ["미답변 비율", "운영", `${t.unansweredRate}%`, "근거 부족으로 대기열에 등록된 비율"],
     ["출처 포함 답변률", "운영", `${t.citationRate}%`, "chat_log_citations 보유 답변 비율"],

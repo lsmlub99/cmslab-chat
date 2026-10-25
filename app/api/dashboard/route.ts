@@ -6,6 +6,7 @@ import { KPI_CAMPAIGN, kpiProgress } from "@/lib/kpi";
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
 export const runtime = "nodejs";
 export const maxDuration = 30;
+export const dynamic = "force-dynamic";
 
 /**
  * 운영 지표. 모든 수치는 public.chat_logs / feedback / documents 실측값입니다.
@@ -282,7 +283,8 @@ export async function GET(request: Request) {
     }
 
     const campaignFrom = new Date(KPI_CAMPAIGN.from);
-    const campaignTo = new Date(KPI_CAMPAIGN.to);
+    // 종료일에 고정하지 않고 현재 시점까지 누적해 오늘 Slack 이용도 즉시 반영합니다.
+    const campaignTo = new Date();
     const [campaignChat, campaignDocuments] = await Promise.all([
       sql`
         select count(*)::int as questions,
@@ -368,8 +370,8 @@ export async function GET(request: Request) {
       campaign: {
         name: KPI_CAMPAIGN.name,
         from: KPI_CAMPAIGN.from,
-        to: KPI_CAMPAIGN.to,
-        note: "프로젝트 기간의 실제 Slack 답변과 품질을 집계하며, 주간 고유 사용자 수는 KPI에서 제외합니다.",
+        to: campaignTo.toISOString(),
+        note: "",
         metrics: [
           { key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful, target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건", progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls) },
           { key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate, target: KPI_CAMPAIGN.targets.answeredRate, unit: "%", progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate) },
@@ -397,6 +399,8 @@ export async function GET(request: Request) {
         answered: Number(item.answered),
         lastAt: item.last_at instanceof Date ? item.last_at.toISOString() : String(item.last_at ?? ""),
       })),
+    }, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error) {
     return NextResponse.json(
