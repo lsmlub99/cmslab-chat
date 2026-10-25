@@ -82,7 +82,7 @@ export type DashboardData = {
     from: string;
     to: string;
     note: string;
-    metrics: { key: string; label: string; actual: number; target: number; unit: string; progress: number }[];
+    metrics: { key: string; label: string; actual: number; target: number; unit: string; progress: number; detail?: string }[];
   };
   negativeReasons?: { reason: string; count: number }[];
   totals: DashboardTotals;

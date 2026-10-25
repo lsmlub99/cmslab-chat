@@ -403,9 +403,10 @@ function CampaignPanel({ campaign }: { campaign: NonNullable<DashboardData["camp
         {campaign.metrics.map(metric => (
           <div className="kpi" key={metric.key}>
             <span>{metric.label}</span>
-            <strong>{metric.actual}{metric.unit} / {metric.target}{metric.unit}</strong>
+            <strong>{metric.actual}{metric.unit}</strong>
+            {metric.detail && <em>{metric.detail}</em>}
             <div className="kpi-progress"><i style={{ width: `${metric.progress}%` }}/></div>
-            <em>진행률 {metric.progress}%</em>
+            <em>목표 {metric.target}{metric.unit} · 목표 대비 {metric.progress}%</em>
           </div>
         ))}
       </div>

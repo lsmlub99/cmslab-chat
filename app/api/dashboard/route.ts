@@ -242,9 +242,10 @@ export async function GET(request: Request) {
     const totalFeedback = Number(feedback[0].total);
     const campaignQuestions = Number(campaignChat[0].questions);
     const campaignAnswered = Number(campaignChat[0].answered);
+    const campaignWithCitation = Number(campaignChat[0].with_citation);
     const campaignKnowledgeDocuments = Number(campaignDocuments[0].documents);
     const campaignAnsweredRate = percent(campaignAnswered, campaignQuestions);
-    const campaignCitationRate = percent(Number(campaignChat[0].with_citation), campaignAnswered);
+    const campaignCitationRate = percent(campaignWithCitation, campaignAnswered);
 
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -289,10 +290,30 @@ export async function GET(request: Request) {
         to: campaignTo.toISOString(),
         note: "",
         metrics: [
-          { key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful, target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건", progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls) },
-          { key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate, target: KPI_CAMPAIGN.targets.answeredRate, unit: "%", progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate) },
-          { key: "citation_rate", label: "출처 포함률", actual: campaignCitationRate, target: KPI_CAMPAIGN.targets.citationRate, unit: "%", progress: kpiProgress(campaignCitationRate, KPI_CAMPAIGN.targets.citationRate) },
-          { key: "knowledge", label: "검토 완료 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
+          {
+            key: "slack_success", label: "Slack 정상답변", actual: campaignSlackSuccessful,
+            target: KPI_CAMPAIGN.targets.slackSuccessfulCalls, unit: "건",
+            progress: kpiProgress(campaignSlackSuccessful, KPI_CAMPAIGN.targets.slackSuccessfulCalls),
+            detail: `전체 질문 ${campaignQuestions}건 · 미답변 ${Math.max(0, campaignQuestions - campaignAnswered)}건`,
+          },
+          {
+            key: "answer_rate", label: "답변 완료율", actual: campaignAnsweredRate,
+            target: KPI_CAMPAIGN.targets.answeredRate, unit: "%",
+            progress: kpiProgress(campaignAnsweredRate, KPI_CAMPAIGN.targets.answeredRate),
+            detail: `정상답변 ${campaignAnswered}건 ÷ 전체 질문 ${campaignQuestions}건`,
+          },
+          {
+            key: "citation_rate", label: "출처 포함률", actual: campaignCitationRate,
+            target: KPI_CAMPAIGN.targets.citationRate, unit: "%",
+            progress: kpiProgress(campaignCitationRate, KPI_CAMPAIGN.targets.citationRate),
+            detail: `출처 포함 ${campaignWithCitation}건 ÷ 정상답변 ${campaignAnswered}건`,
+          },
+          {
+            key: "knowledge", label: "검토 완료 문서", actual: campaignKnowledgeDocuments,
+            target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건",
+            progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments),
+            detail: "관리자가 검토 완료로 표시한 원본 문서",
+          },
         ],
       },
       negativeReasons: negativeReasons.map(row => ({ reason: String(row.reason), count: Number(row.count) })),
