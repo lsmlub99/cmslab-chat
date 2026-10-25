@@ -102,47 +102,46 @@ export async function GET(request: Request) {
       `,
     ]);
 
-    // 피드백에는 기간 컬럼이 있으나 chat_log_id 로 답변과 이어집니다.
-    const feedback = await sql`
-      select count(*)::int as total,
-             count(*) filter (where rating > 0)::int as positive
-      from public.feedback
-      where created_at >= ${from} and created_at <= ${to}
-    `;
-
-    const negativeReasons = await sql`
-      select coalesce(nullif(note, ''), 'unspecified') as reason, count(*)::int as count
-      from public.feedback
-      where created_at >= ${from} and created_at <= ${to} and rating < 0
-      group by 1
-      order by count desc, reason
-    `;
-
-    const pending = await sql`
-      select count(*)::int as pending from public.chat_logs
-      where coalesce(is_fallback, false) and coalesce(category, '') <> 'blocked'
-    `;
-
-    // 차단된 질문은 따로 셉니다. 지표에는 넣지 않되 운영자가 흐름은 알아야 합니다.
-    const blocked = await sql`
-      select count(*)::int as blocked
-      from public.chat_logs
-      where created_at >= ${from} and created_at <= ${to} and category = 'blocked'
-    `;
-
-    // 누가 얼마나 쓰는지. 성과 보고에서 "사용자 수"의 근거가 되는 목록입니다.
-    const people = await sql`
-      select coalesce(max(user_name), '이름 없음') as name,
-             user_email as email,
-             count(*)::int as questions,
-             count(*) filter (where not coalesce(is_fallback, false))::int as answered,
-             max(created_at) as last_at
-      from public.chat_logs
-      where created_at >= ${from} and created_at <= ${to} and user_email is not null
-      group by user_email
-      order by questions desc, last_at desc
-      limit 50
-    `;
+    // 서로 독립적인 보조 집계는 한 번에 실행해 서버리스 콜드 스타트 지연을 줄입니다.
+    const [feedback, negativeReasons, pending, blocked, people] = await Promise.all([
+      // 피드백에는 기간 컬럼이 있으나 chat_log_id 로 답변과 이어집니다.
+      sql`
+        select count(*)::int as total,
+               count(*) filter (where rating > 0)::int as positive
+        from public.feedback
+        where created_at >= ${from} and created_at <= ${to}
+      `,
+      sql`
+        select coalesce(nullif(note, ''), 'unspecified') as reason, count(*)::int as count
+        from public.feedback
+        where created_at >= ${from} and created_at <= ${to} and rating < 0
+        group by 1
+        order by count desc, reason
+      `,
+      sql`
+        select count(*)::int as pending from public.chat_logs
+        where coalesce(is_fallback, false) and coalesce(category, '') <> 'blocked'
+      `,
+      // 차단된 질문은 따로 세되 실제 이용 지표에는 포함하지 않습니다.
+      sql`
+        select count(*)::int as blocked
+        from public.chat_logs
+        where created_at >= ${from} and created_at <= ${to} and category = 'blocked'
+      `,
+      // 사용자 수의 근거가 되는 로그인 계정별 목록입니다.
+      sql`
+        select coalesce(max(user_name), '이름 없음') as name,
+               user_email as email,
+               count(*)::int as questions,
+               count(*) filter (where not coalesce(is_fallback, false))::int as answered,
+               max(created_at) as last_at
+        from public.chat_logs
+        where created_at >= ${from} and created_at <= ${to} and user_email is not null
+        group by user_email
+        order by questions desc, last_at desc
+        limit 50
+      `,
+    ]);
 
     // 004_slack_mcp.sql 적용 전에도 기존 대시보드는 열리도록 MCP 집계만 0으로 물러섭니다.
     let mcp = { calls: 0, successful: 0, users: 0, avgResponseMs: 0 };
@@ -197,89 +196,6 @@ export async function GET(request: Request) {
       };
     } catch {
       // 아직 005/006 Slack 마이그레이션을 적용하지 않은 배포를 위한 호환 경로입니다.
-    }
-
-    // 내부 예상 질의 검증은 실사용 로그와 별도 테이블에서 읽습니다.
-    // 마이그레이션 적용 전에도 기존 대시보드는 그대로 열리도록 선택 항목으로 둡니다.
-    let syntheticEvaluation: {
-      total: number;
-      passed: number;
-      failed: number;
-      needsKnowledge: number;
-      passRate: number;
-      sourceRate: number;
-      avgRetrievalMs: number;
-      evaluatedAt: string | null;
-      topics: { topic: string; total: number; passed: number }[];
-      items: {
-        key: string;
-        question: string;
-        topic: string;
-        status: "passed" | "failed" | "needs_knowledge";
-        matchedSource: string | null;
-        evidencePreview: string | null;
-        similarity: number | null;
-        retrievalMs: number | null;
-      }[];
-    } | undefined;
-    try {
-      const [summaryRows, topicRows, itemRows] = await Promise.all([
-        sql`
-          select count(*)::int as total,
-                 count(*) filter (where status = 'passed')::int as passed,
-                 count(*) filter (where status = 'failed')::int as failed,
-                 count(*) filter (where status = 'needs_knowledge')::int as needs_knowledge,
-                 count(*) filter (where nullif(matched_source, '') is not null)::int as with_source,
-                 coalesce(avg(retrieval_ms), 0)::int as avg_retrieval_ms,
-                 max(evaluated_at) as evaluated_at
-          from public.synthetic_evaluations
-          where synthetic = true
-        `,
-        sql`
-          select topic, count(*)::int as total,
-                 count(*) filter (where status = 'passed')::int as passed
-          from public.synthetic_evaluations
-          where synthetic = true
-          group by topic
-          order by count(*) desc, topic
-        `,
-        sql`
-          select scenario_key, question, topic, status, matched_source,
-                 evidence_preview, similarity, retrieval_ms
-          from public.synthetic_evaluations
-          where synthetic = true
-          order by topic, scenario_key
-        `,
-      ]);
-      const summary = summaryRows[0];
-      const total = Number(summary.total);
-      syntheticEvaluation = {
-        total,
-        passed: Number(summary.passed),
-        failed: Number(summary.failed),
-        needsKnowledge: Number(summary.needs_knowledge),
-        passRate: percent(Number(summary.passed), total),
-        sourceRate: percent(Number(summary.with_source), total),
-        avgRetrievalMs: Number(summary.avg_retrieval_ms),
-        evaluatedAt: summary.evaluated_at instanceof Date
-          ? summary.evaluated_at.toISOString()
-          : summary.evaluated_at ? String(summary.evaluated_at) : null,
-        topics: topicRows.map(row => ({
-          topic: String(row.topic), total: Number(row.total), passed: Number(row.passed),
-        })),
-        items: itemRows.map(row => ({
-          key: String(row.scenario_key),
-          question: String(row.question),
-          topic: String(row.topic),
-          status: String(row.status) as "passed" | "failed" | "needs_knowledge",
-          matchedSource: row.matched_source ? String(row.matched_source) : null,
-          evidencePreview: row.evidence_preview ? String(row.evidence_preview) : null,
-          similarity: row.similarity === null ? null : Number(row.similarity),
-          retrievalMs: row.retrieval_ms === null ? null : Number(row.retrieval_ms),
-        })),
-      };
-    } catch {
-      // 009 마이그레이션 적용 전 호환 경로입니다.
     }
 
     const campaignFrom = new Date(KPI_CAMPAIGN.from);
@@ -379,7 +295,6 @@ export async function GET(request: Request) {
           { key: "knowledge", label: "검토 완료 문서", actual: campaignKnowledgeDocuments, target: KPI_CAMPAIGN.targets.knowledgeDocuments, unit: "건", progress: kpiProgress(campaignKnowledgeDocuments, KPI_CAMPAIGN.targets.knowledgeDocuments) },
         ],
       },
-      syntheticEvaluation,
       negativeReasons: negativeReasons.map(row => ({ reason: String(row.reason), count: Number(row.count) })),
       series: series.map(item => ({
         date: String(item.date),

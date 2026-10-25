@@ -24,7 +24,7 @@ async function getJson(url: string, options?: RequestInit) {
     location.href = "/admin/login";
     throw new Error("관리자 로그인이 필요합니다.");
   }
-  if (!response.ok) throw new Error(data.error || "요청에 실패했습니다.");
+  if (!response.ok) throw new Error(data.error || `요청에 실패했습니다. (${response.status})`);
   return data;
 }
 
@@ -60,8 +60,19 @@ export default function AdminShell() {
     const query = from && to
       ? `?from=${encodeURIComponent(`${from}T00:00:00.000+09:00`)}&to=${encodeURIComponent(`${to}T23:59:59.999+09:00`)}`
       : "?days=30";
-    try { setDashboard(await getJson(`/api/dashboard${query}`, { cache: "no-store" })); }
-    catch (error) { setSetupError(error instanceof Error ? error.message : "지표를 불러오지 못했습니다."); }
+    const endpoint = `/api/dashboard${query}`;
+    try {
+      setDashboard(await getJson(endpoint, { cache: "no-store" }));
+    } catch (firstError) {
+      // 서버리스 콜드 스타트나 일시적인 DB 연결 실패는 한 번만 자동 재시도합니다.
+      await new Promise(resolve => window.setTimeout(resolve, 800));
+      try { setDashboard(await getJson(endpoint, { cache: "no-store" })); }
+      catch (error) {
+        setSetupError(error instanceof Error
+          ? error.message
+          : firstError instanceof Error ? firstError.message : "지표를 불러오지 못했습니다.");
+      }
+    }
   }, []);
 
   useEffect(() => {
