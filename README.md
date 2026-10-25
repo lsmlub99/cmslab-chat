@@ -37,8 +37,8 @@ npx next dev
 
 내부 데모용 예상 질의 검증은 실사용 로그와 분리합니다. `009_synthetic_evaluations.sql`을
 적용한 뒤 `npm run evaluate:synthetic`을 실행하면 60개 질문을 실제 임베딩·검색으로 검사하고
-`public.synthetic_evaluations`에 결과를 저장합니다. 관리자 대시보드에는 같은 화면에서 보이지만
-항상 `내부 시뮬레이션 · KPI 제외`로 표시되며 `chat_logs`와 Slack KPI에는 합산되지 않습니다.
+`public.synthetic_evaluations`에 결과를 저장합니다. 이 별도 평가 데이터는 관리자 대시보드에
+노출하지 않으며 `chat_logs`와 Slack KPI에도 합산되지 않습니다.
 
 API 키는 서버 라우트에서만 사용하며 브라우저로 전달하지 않습니다.
 
