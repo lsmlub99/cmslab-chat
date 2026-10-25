@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import { KPI_CAMPAIGN, kpiProgress } from "@/lib/kpi";
+import { dashboardSnapshot } from "@/lib/server/dashboard-snapshot";
 
 // Vercel Hobby 플랜의 기본 함수 실행 상한은 10초입니다.
 // 콜드 스타트에 DB 연결(TLS 핸드셰이크)이 겹치면 10초를 넘겨 504가 납니다.
@@ -18,6 +19,10 @@ export const dynamic = "force-dynamic";
 const TIME_ZONE = "Asia/Seoul";
 
 export async function GET(request: Request) {
+  return dashboardSnapshot(request);
+}
+
+async function legacyDashboard(request: Request) {
   if (!hasDatabaseConfig()) {
     return NextResponse.json({ error: ".env.local에 DATABASE_URL을 입력해 주세요." }, { status: 503 });
   }
