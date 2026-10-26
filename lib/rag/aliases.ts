@@ -4,6 +4,7 @@ import { chatModel, openai } from "@/lib/openai";
 import { errorCodeOf } from "@/lib/rag/ai-error";
 import { logAiCall } from "@/lib/server/telemetry.server";
 import { parseAliases } from "@/lib/rag/aliases-parser";
+import { deterministicSearchAliases, mergeSearchAliases } from "@/lib/rag/deterministic-aliases";
 
 type AliasChunk = { content: string; section?: string | null };
 
@@ -25,7 +26,15 @@ export async function generateSearchAliases(input: {
   for (let offset = 0; offset < input.chunks.length; offset += BATCH_SIZE) {
     const batch = input.chunks.slice(offset, offset + BATCH_SIZE);
     const generated = await generateAliasBatch({ ...input, chunks: batch });
-    generated.forEach((values, index) => { aliases[offset + index] = values; });
+    generated.forEach((values, index) => {
+      const chunk = batch[index];
+      aliases[offset + index] = mergeSearchAliases(values, deterministicSearchAliases({
+        title: input.title,
+        category: input.category,
+        section: chunk.section,
+        content: chunk.content,
+      }));
+    });
   }
   return aliases;
 }
