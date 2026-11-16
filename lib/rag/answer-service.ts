@@ -21,6 +21,7 @@ import { sanitizeAnswer } from "@/lib/rag/sanitize";
 import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
 import { answerHrCalculator } from "@/lib/hr-calculators";
 import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
+import { answerCompanySupportQuestion } from "@/lib/company-support";
 import { buildKnowledgeGapAnswer, GENERIC_FALLBACK_ANSWER } from "@/lib/team-routing";
 import type { Citation } from "@/lib/types";
 
@@ -116,6 +117,29 @@ export async function answerKnowledgeQuestion(input: {
     });
     await recordOrgDirectoryAction(input.interactionSource, started);
     return result("answered", orgDirectory.answer, [], [], questionId, conversationId, started);
+  }
+
+  const companySupport = answerCompanySupportQuestion(input.question);
+  if (companySupport) {
+    const questionId = await insertChatLog({
+      ...common,
+      answer: companySupport.answer,
+      category: companySupport.category,
+      fallback: false,
+      responseMs: Date.now() - started,
+      citationCount: 0,
+      topSimilarity: null,
+    });
+    await recordCompanySupportAction(input.interactionSource, started);
+    return result(
+      "answered",
+      companySupport.answer,
+      [],
+      companySupport.links,
+      questionId,
+      conversationId,
+      started,
+    );
   }
 
   const rows = await findKnowledge(input.question, history);
@@ -339,6 +363,19 @@ async function recordOrgDirectoryAction(source: KnowledgeInteractionSource, star
       : "slack_mention";
   await logUserAction({
     action: `${prefix}_query_org_directory`,
+    success: true,
+    latencyMs: Date.now() - started,
+  }).catch(() => undefined);
+}
+
+async function recordCompanySupportAction(source: KnowledgeInteractionSource, started: number) {
+  const prefix = source === "slack_mcp"
+    ? "mcp"
+    : source === "slack_dm"
+      ? "slack_dm"
+      : "slack_mention";
+  await logUserAction({
+    action: `${prefix}_answer_company_support_faq`,
     success: true,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);

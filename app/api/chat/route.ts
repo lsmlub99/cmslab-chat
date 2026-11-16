@@ -25,6 +25,7 @@ import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import { answerHrCalculator } from "@/lib/hr-calculators";
 import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
+import { answerCompanySupportQuestion } from "@/lib/company-support";
 import { buildKnowledgeGapAnswer, GENERIC_FALLBACK_ANSWER } from "@/lib/team-routing";
 import type { Citation } from "@/lib/types";
 
@@ -259,6 +260,38 @@ export async function POST(request: Request) {
         answer: orgDirectory.answer,
         citations: [],
         links: [],
+        conversationId: activeConversation,
+        questionId,
+      });
+      if (setUserCookie) response.headers.set("Set-Cookie", setUserCookie);
+      return response;
+    }
+
+    const companySupport = answerCompanySupportQuestion(question);
+    if (companySupport) {
+      const questionId = await insertChatLog({
+        question,
+        answer: companySupport.answer,
+        category: companySupport.category,
+        fallback: false,
+        actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
+        conversationId: activeConversation,
+        responseMs: Date.now() - started,
+        followup,
+        citationCount: 0,
+        topSimilarity: null,
+      });
+      await logUserAction({
+        action: "answer_company_support_faq",
+        success: true,
+        latencyMs: Date.now() - started,
+      }).catch(() => undefined);
+      const response = NextResponse.json({
+        answer: companySupport.answer,
+        citations: [],
+        links: companySupport.links,
         conversationId: activeConversation,
         questionId,
       });
