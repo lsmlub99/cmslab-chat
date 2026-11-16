@@ -11,7 +11,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 
 export function GET() {
   return Response.json(
-    { ok: true, version: "directory-members-v1" },
+    { ok: true, version: "directory-aliases-v2" },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

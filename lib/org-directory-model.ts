@@ -121,14 +121,64 @@ function findTarget(question: string, candidates: { path: string; label: string;
   const normalized = compact(question);
   return candidates
     .filter(item => {
-      const label = compact(item.label);
-      const shortLabel = compact(item.label.replace(/(?:팀|실|그룹|group|bu)$/iu, ""));
       const fullPath = compact(item.path.replaceAll("/", " "));
-      return (label.length >= 2 && normalized.includes(label))
-        || (shortLabel.length >= 2 && normalized.includes(shortLabel))
+      return organizationAliases(item.label).some(alias => alias.length >= 2 && normalized.includes(alias))
         || normalized.includes(fullPath);
     })
     .sort((a, b) => compact(b.label).length - compact(a.label).length || b.path.length - a.path.length)[0];
+}
+
+const LETTER_PRONUNCIATION: Record<string, string> = {
+  A: "에이", B: "비", C: "씨", D: "디", E: "이", F: "에프", G: "지",
+  H: "에이치", I: "아이", J: "제이", K: "케이", L: "엘", M: "엠",
+  N: "엔", O: "오", P: "피", Q: "큐", R: "알", S: "에스", T: "티",
+  U: "유", V: "브이", W: "더블유", X: "엑스", Y: "와이", Z: "지",
+};
+
+export function organizationAliases(label: string) {
+  const aliases = new Set<string>();
+  const normalized = compact(label);
+  const semanticName = normalized.replaceAll("&", "");
+  aliases.add(normalized);
+  aliases.add(compact(label.replace(/(?:팀|실|그룹|group|bu)$/iu, "")));
+
+  for (const token of label.match(/[A-Z][A-Z&]*\d*/g) ?? []) {
+    const letters = token.replace(/[^A-Z]/g, "");
+    if (letters.length < 2 || letters.length > 5) continue;
+    const digits = token.match(/\d+$/)?.[0] ?? "";
+    const spoken = [...letters].map(letter => LETTER_PRONUNCIATION[letter]).join("");
+    aliases.add(compact(`${spoken}${digits}`));
+    if (token.includes("&")) {
+      aliases.add(compact(`${[...letters].map(letter => LETTER_PRONUNCIATION[letter]).join("앤")}${digits}`));
+    }
+  }
+
+  const englishWords = label.match(/[A-Za-z]+/g) ?? [];
+  if (englishWords.length >= 2) {
+    const initials = englishWords.map(word => word[0].toUpperCase()).join("");
+    if (initials.length <= 5) {
+      aliases.add(compact(initials));
+      aliases.add(compact([...initials].map(letter => LETTER_PRONUNCIATION[letter]).join("")));
+    }
+  }
+
+  if (semanticName.includes("peopleculture")) {
+    for (const alias of [
+      "피플앤컬처", "피플앤컬쳐", "피플컬처", "피플컬쳐", "피컬",
+      "피앤씨", "인사", "인사팀", "HR", "에이치알",
+    ]) aliases.add(compact(alias));
+  }
+  if (normalized.includes("연구개발")) {
+    for (const alias of ["연구소", "연구팀", "R&D", "RND", "알앤디", "알엔디"]) aliases.add(compact(alias));
+  }
+  if (normalized.includes("재경")) {
+    for (const alias of ["재무", "재무팀", "회계", "회계팀", "파이낸스"]) aliases.add(compact(alias));
+  }
+  if (normalized.includes("브랜드비주얼")) {
+    for (const alias of ["비주얼", "비주얼팀", "브비"]) aliases.add(compact(alias));
+  }
+
+  return [...aliases].filter(Boolean);
 }
 
 function topLevelSummary(rows: OrgUnitCount[]) {
