@@ -23,7 +23,8 @@ function updateWorkspaceUsersToSheet() {
         user.name && user.name.fullName || '',
         user.primaryEmail || '',
         user.orgUnitPath || '/',
-        user.suspended || user.archived ? '중지됨' : '활성'
+        // 기존 시트와 데이터 통합 플랫폼의 상태값을 그대로 유지합니다.
+        user.suspended ? '중지됨' : '활성'
       ]);
     }
     pageToken = page.nextPageToken;
@@ -36,7 +37,13 @@ function updateWorkspaceUsersToSheet() {
   const now = new Date();
   const displayTime = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   sheet.getRange('E1').setValue('최근 업데이트: ' + displayTime);
-  syncHeadcountToRaebi_(userRows, now);
+  // 챗봇 동기화 실패가 기존 시트 갱신이나 데이터 통합 플랫폼에 영향을 주지 않게
+  // 별도 best-effort 작업으로 처리합니다.
+  try {
+    syncHeadcountToRaebi_(userRows, now);
+  } catch (error) {
+    console.error('래비 조직도 동기화만 실패했습니다. 기존 시트 갱신은 완료되었습니다.', error);
+  }
 }
 
 function syncHeadcountToRaebi_(userRows, now) {
