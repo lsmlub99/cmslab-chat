@@ -25,13 +25,14 @@ import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import { answerHrCalculator } from "@/lib/hr-calculators";
 import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
+import { buildKnowledgeGapAnswer, GENERIC_FALLBACK_ANSWER } from "@/lib/team-routing";
 import type { Citation } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const FALLBACK_ANSWER =
-  "등록된 팀 지식에서 확인되지 않는 내용입니다. 관리자에게 질문을 전달했으니 확인 후 지식으로 등록될 예정입니다.";
+  GENERIC_FALLBACK_ANSWER;
 
 type ChatLogInput = {
   question: string;
@@ -290,9 +291,10 @@ export async function POST(request: Request) {
     const tooWeak = !rows.some(row => isStrongMatch(row, TOP_MATCH_THRESHOLD));
 
     if (tooWeak) {
+      const fallbackAnswer = await buildKnowledgeGapAnswer(question);
       const questionId = await insertChatLog({
         question,
-        answer: FALLBACK_ANSWER,
+        answer: fallbackAnswer,
         category: "fallback",
         fallback: true,
         actor,
@@ -305,7 +307,7 @@ export async function POST(request: Request) {
         topSimilarity,
       });
       const response = NextResponse.json({
-        answer: FALLBACK_ANSWER,
+        answer: fallbackAnswer,
         citations: [],
         conversationId: activeConversation,
         questionId,
@@ -393,7 +395,7 @@ export async function POST(request: Request) {
 
           // 모델이 "근거가 부족합니다"로 답하면 인용을 붙이지 않고 미답변으로 넘깁니다.
           const insufficient = saysInsufficient(answer);
-          const finalAnswer = insufficient ? FALLBACK_ANSWER : stripCitationReferences(answer);
+          const finalAnswer = insufficient ? await buildKnowledgeGapAnswer(question) : stripCitationReferences(answer);
           const finalCitations = insufficient ? [] : selectUsedCitations(answer, citations);
 
           // 모델은 사용한 근거를 [출처 N]으로 표시하지만, 화면에는 별도 출처 목록이 있으므로
@@ -434,7 +436,7 @@ export async function POST(request: Request) {
             // 근거를 쓰지 않은 답변에는 링크도 붙이지 않습니다.
             links: insufficient ? [] : collectLinks(selectReferencedItems(answer, rows)),
             unanswered: insufficient,
-            ...(insufficient ? { answer: FALLBACK_ANSWER } : {}),
+            ...(insufficient ? { answer: finalAnswer } : {}),
           });
         } catch (error) {
           settled = true;

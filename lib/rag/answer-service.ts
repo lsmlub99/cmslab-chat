@@ -21,10 +21,11 @@ import { sanitizeAnswer } from "@/lib/rag/sanitize";
 import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
 import { answerHrCalculator } from "@/lib/hr-calculators";
 import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
+import { buildKnowledgeGapAnswer, GENERIC_FALLBACK_ANSWER } from "@/lib/team-routing";
 import type { Citation } from "@/lib/types";
 
 export const FALLBACK_ANSWER =
-  "등록된 팀 지식에서 확인되지 않는 내용입니다. 관리자에게 질문을 전달했으니 확인 후 지식으로 등록될 예정입니다.";
+  GENERIC_FALLBACK_ANSWER;
 
 export type KnowledgeAnswerStatus = "answered" | "insufficient" | "blocked";
 export type KnowledgeInteractionSource = "slack_mcp" | "slack_mention" | "slack_dm";
@@ -122,9 +123,10 @@ export async function answerKnowledgeQuestion(input: {
   const tooWeak = !rows.some(row => isStrongMatch(row, TOP_MATCH_THRESHOLD));
 
   if (tooWeak) {
+    const fallbackAnswer = await buildKnowledgeGapAnswer(input.question);
     const questionId = await insertChatLog({
       ...common,
-      answer: FALLBACK_ANSWER,
+      answer: fallbackAnswer,
       category: "fallback",
       fallback: true,
       responseMs: Date.now() - started,
@@ -132,7 +134,7 @@ export async function answerKnowledgeQuestion(input: {
       topSimilarity,
     });
     await recordAction(input.interactionSource, false, started);
-    return result("insufficient", FALLBACK_ANSWER, [], [], questionId, conversationId, started);
+    return result("insufficient", fallbackAnswer, [], [], questionId, conversationId, started);
   }
 
   const citations = toCitations(rows);
@@ -178,7 +180,7 @@ export async function answerKnowledgeQuestion(input: {
   if (isEmptyAnswer(answer)) throw new Error("답변을 생성하지 못했습니다. 다시 한번 질문해 주세요.");
 
   const insufficient = saysInsufficient(answer);
-  const finalAnswer = insufficient ? FALLBACK_ANSWER : stripCitationReferences(answer);
+  const finalAnswer = insufficient ? await buildKnowledgeGapAnswer(input.question) : stripCitationReferences(answer);
   const finalCitations = insufficient ? [] : selectUsedCitations(answer, citations);
   const finalLinks = insufficient ? [] : collectLinks(selectReferencedItems(answer, rows));
   const questionId = await insertChatLog({
