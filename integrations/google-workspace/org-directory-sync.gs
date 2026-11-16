@@ -1,5 +1,5 @@
 /**
- * 기존 Google Workspace 조직도 시트 갱신 + 래비 월별 현원 동기화.
+ * 기존 Google Workspace 조직도 시트 갱신 + 래비 주간 현원 동기화.
  * Script Properties에 아래 두 값을 먼저 등록하세요.
  * - RAEBI_SYNC_URL: https://cmslab-chat.vercel.app/api/integrations/google-directory
  * - RAEBI_SYNC_SECRET: Vercel의 GOOGLE_DIRECTORY_SYNC_SECRET와 같은 값
@@ -79,14 +79,14 @@ function syncHeadcountToRaebi_(userRows, now) {
   }
 }
 
-/** 한 번 실행하면 매월 1일 새벽에 자동 갱신됩니다. */
-function createMonthlyWorkspaceSyncTrigger() {
+/** 한 번 실행하면 매주 월요일 새벽에 자동 갱신됩니다. 기존 월간 트리거도 함께 교체합니다. */
+function createWeeklyWorkspaceSyncTrigger() {
   for (const trigger of ScriptApp.getProjectTriggers()) {
     if (trigger.getHandlerFunction() === 'updateWorkspaceUsersToSheet') ScriptApp.deleteTrigger(trigger);
   }
   ScriptApp.newTrigger('updateWorkspaceUsersToSheet')
     .timeBased()
-    .onMonthDay(1)
+    .onWeekDay(ScriptApp.WeekDay.MONDAY)
     .atHour(4)
     .create();
 }
