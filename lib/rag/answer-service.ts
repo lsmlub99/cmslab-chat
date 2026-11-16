@@ -20,6 +20,7 @@ import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
 import { sanitizeAnswer } from "@/lib/rag/sanitize";
 import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
 import { answerHrCalculator } from "@/lib/hr-calculators";
+import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
 import type { Citation } from "@/lib/types";
 
 export const FALLBACK_ANSWER =
@@ -99,6 +100,21 @@ export async function answerKnowledgeQuestion(input: {
       conversationId,
       started,
     );
+  }
+
+  const orgDirectory = await answerOrgDirectoryQuestion(input.question, history);
+  if (orgDirectory) {
+    const questionId = await insertChatLog({
+      ...common,
+      answer: orgDirectory.answer,
+      category: orgDirectory.category,
+      fallback: false,
+      responseMs: Date.now() - started,
+      citationCount: 0,
+      topSimilarity: null,
+    });
+    await recordOrgDirectoryAction(input.interactionSource, started);
+    return result("answered", orgDirectory.answer, [], [], questionId, conversationId, started);
   }
 
   const rows = await findKnowledge(input.question, history);
@@ -308,6 +324,19 @@ async function recordCalculatorAction(
       : "slack_mention";
   await logUserAction({
     action: `${prefix}_calculate_${kind}`,
+    success: true,
+    latencyMs: Date.now() - started,
+  }).catch(() => undefined);
+}
+
+async function recordOrgDirectoryAction(source: KnowledgeInteractionSource, started: number) {
+  const prefix = source === "slack_mcp"
+    ? "mcp"
+    : source === "slack_dm"
+      ? "slack_dm"
+      : "slack_mention";
+  await logUserAction({
+    action: `${prefix}_query_org_directory`,
     success: true,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);

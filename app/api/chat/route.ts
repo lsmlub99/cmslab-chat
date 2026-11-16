@@ -24,6 +24,7 @@ import { selectReferencedItems, selectUsedCitations, stripCitationReferences } f
 import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
 import { answerHrCalculator } from "@/lib/hr-calculators";
+import { answerOrgDirectoryQuestion } from "@/lib/org-directory";
 import type { Citation } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -225,6 +226,38 @@ export async function POST(request: Request) {
         answer: calculator.answer,
         citations: [],
         links: calculator.links,
+        conversationId: activeConversation,
+        questionId,
+      });
+      if (setUserCookie) response.headers.set("Set-Cookie", setUserCookie);
+      return response;
+    }
+
+    const orgDirectory = await answerOrgDirectoryQuestion(question, history);
+    if (orgDirectory) {
+      const questionId = await insertChatLog({
+        question,
+        answer: orgDirectory.answer,
+        category: orgDirectory.category,
+        fallback: false,
+        actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
+        conversationId: activeConversation,
+        responseMs: Date.now() - started,
+        followup,
+        citationCount: 0,
+        topSimilarity: null,
+      });
+      await logUserAction({
+        action: "query_org_directory",
+        success: true,
+        latencyMs: Date.now() - started,
+      }).catch(() => undefined);
+      const response = NextResponse.json({
+        answer: orgDirectory.answer,
+        citations: [],
+        links: [],
         conversationId: activeConversation,
         questionId,
       });

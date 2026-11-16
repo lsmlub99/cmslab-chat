@@ -25,6 +25,8 @@ const ALWAYS_OPEN = [
   "/api/mcp",
   // 일반 Slack 앱의 @mention 이벤트도 같은 Slack 서명으로 인증합니다.
   "/api/slack/events",
+  // Google Apps Script는 브라우저 로그인이 아니라 전용 Bearer secret으로 인증합니다.
+  "/api/integrations/google-directory",
 ];
 
 const ADMIN_ONLY_PREFIX = ["/admin", "/api/knowledge"];
