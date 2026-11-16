@@ -19,6 +19,7 @@ import { extractUrls } from "@/lib/rag/links";
 import { BLOCKED_MESSAGE, checkQuestion } from "@/lib/rag/moderation";
 import { sanitizeAnswer } from "@/lib/rag/sanitize";
 import { logAiCall, logUserAction } from "@/lib/server/telemetry.server";
+import { answerHrCalculator } from "@/lib/hr-calculators";
 import type { Citation } from "@/lib/types";
 
 export const FALLBACK_ANSWER =
@@ -75,6 +76,29 @@ export async function answerKnowledgeQuestion(input: {
     });
     await recordAction(input.interactionSource, false, started);
     return result("blocked", BLOCKED_MESSAGE, [], [], questionId, conversationId, started);
+  }
+
+  const calculator = answerHrCalculator(input.question, history);
+  if (calculator) {
+    const questionId = await insertChatLog({
+      ...common,
+      answer: calculator.answer,
+      category: calculator.category,
+      fallback: false,
+      responseMs: Date.now() - started,
+      citationCount: 0,
+      topSimilarity: null,
+    });
+    await recordCalculatorAction(input.interactionSource, calculator.kind, started);
+    return result(
+      "answered",
+      calculator.answer,
+      [],
+      calculator.links,
+      questionId,
+      conversationId,
+      started,
+    );
   }
 
   const rows = await findKnowledge(input.question, history);
@@ -268,6 +292,23 @@ async function recordAction(source: KnowledgeInteractionSource, success: boolean
         ? "slack_dm_ask_company_knowledge"
         : "slack_mention_ask_company_knowledge",
     success,
+    latencyMs: Date.now() - started,
+  }).catch(() => undefined);
+}
+
+async function recordCalculatorAction(
+  source: KnowledgeInteractionSource,
+  kind: "annual_leave" | "severance",
+  started: number,
+) {
+  const prefix = source === "slack_mcp"
+    ? "mcp"
+    : source === "slack_dm"
+      ? "slack_dm"
+      : "slack_mention";
+  await logUserAction({
+    action: `${prefix}_calculate_${kind}`,
+    success: true,
     latencyMs: Date.now() - started,
   }).catch(() => undefined);
 }

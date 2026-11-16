@@ -185,6 +185,7 @@ export default function ChatShell() {
         updateLast({
           content: data.answer || data.error || "질문을 처리하지 못했습니다.",
           citations: data.citations || [],
+          links: data.links || [],
           questionId: data.questionId,
           unanswered: Boolean(data.unanswered),
           error: !response.ok || Boolean(data.blocked),

@@ -23,6 +23,7 @@ import { errorCodeOf } from "@/lib/rag/ai-error";
 import { selectReferencedItems, selectUsedCitations, stripCitationReferences } from "@/lib/rag/citations";
 import { chatModel } from "@/lib/openai";
 import { database, hasDatabaseConfig } from "@/lib/database";
+import { answerHrCalculator } from "@/lib/hr-calculators";
 import type { Citation } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -198,6 +199,38 @@ export async function POST(request: Request) {
           .slice(-HISTORY_TURNS)
           .map(turn => ({ question: turn.question, answer: turn.answer }))
       : [];
+
+    const calculator = answerHrCalculator(question, history);
+    if (calculator) {
+      const questionId = await insertChatLog({
+        question,
+        answer: calculator.answer,
+        category: calculator.category,
+        fallback: false,
+        actor,
+        email: session?.email ?? null,
+        name: session?.name ?? null,
+        conversationId: activeConversation,
+        responseMs: Date.now() - started,
+        followup,
+        citationCount: 0,
+        topSimilarity: null,
+      });
+      await logUserAction({
+        action: `calculate_${calculator.kind}`,
+        success: true,
+        latencyMs: Date.now() - started,
+      }).catch(() => undefined);
+      const response = NextResponse.json({
+        answer: calculator.answer,
+        citations: [],
+        links: calculator.links,
+        conversationId: activeConversation,
+        questionId,
+      });
+      if (setUserCookie) response.headers.set("Set-Cookie", setUserCookie);
+      return response;
+    }
 
     const searchQuery = buildSearchQuery(question, history);
     let rows = await searchDocuments(searchQuery, MATCH_COUNT);

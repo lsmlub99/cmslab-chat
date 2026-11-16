@@ -801,7 +801,7 @@ function UploadPanel({ onDone, onError }: { onDone: (message: string) => void; o
           </div>
           <div className="field">
             <label>출처 이름</label>
-            <input value={sourceLabel} onChange={e => setSourceLabel(e.target.value)} placeholder="예: 인사팀 가이드"/>
+            <input value={sourceLabel} onChange={e => setSourceLabel(e.target.value)} placeholder="예: 피플앤컬처팀 가이드"/>
           </div>
           <div className="field">
             <label>출처 URL</label>
@@ -842,7 +842,7 @@ function GovernanceFields({ value, onChange }: {
     <>
       <div className="field">
         <label>담당 부서</label>
-        <input value={value.owner} maxLength={100} onChange={e => onChange({ owner: e.target.value })} placeholder="예: 인사팀"/>
+        <input value={value.owner} maxLength={100} onChange={e => onChange({ owner: e.target.value })} placeholder="예: 피플앤컬처팀"/>
       </div>
       <div className="field">
         <label>문서 상태</label>
