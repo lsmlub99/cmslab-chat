@@ -9,6 +9,13 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 128 * 1024;
 
+export function GET() {
+  return Response.json(
+    { ok: true, version: "directory-members-v1" },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 export async function POST(request: Request) {
   const started = Date.now();
   let success = false;

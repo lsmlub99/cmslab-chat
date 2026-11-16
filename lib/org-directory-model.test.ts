@@ -27,6 +27,7 @@ describe("org directory model", () => {
 
   it("answers a specific team and aggregates a parent organization", () => {
     expect(formatOrgHeadcountAnswer("SCM팀 몇 명이야?", snapshot)).toContain("SCM팀 활성 인원은 5명");
+    expect(formatOrgHeadcountAnswer("SCM 몇명이고?", snapshot)).toContain("SCM팀 활성 인원은 5명");
     expect(formatOrgHeadcountAnswer("마케팅 Group 인원은?", snapshot)).toContain("마케팅 Group 활성 인원은 5명");
   });
 

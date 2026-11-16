@@ -81,6 +81,7 @@ function syncHeadcountToRaebi_(userRows, now) {
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
     throw new Error('래비 조직도 동기화 실패: HTTP ' + response.getResponseCode());
   }
+  console.log('래비 조직도 동기화 완료: ' + response.getContentText());
 }
 
 /** 한 번 실행하면 매주 월요일 새벽에 자동 갱신됩니다. 기존 월간 트리거도 함께 교체합니다. */

@@ -122,8 +122,11 @@ function findTarget(question: string, candidates: { path: string; label: string;
   return candidates
     .filter(item => {
       const label = compact(item.label);
+      const shortLabel = compact(item.label.replace(/(?:팀|실|그룹|group|bu)$/iu, ""));
       const fullPath = compact(item.path.replaceAll("/", " "));
-      return label.length >= 2 && (normalized.includes(label) || normalized.includes(fullPath));
+      return (label.length >= 2 && normalized.includes(label))
+        || (shortLabel.length >= 2 && normalized.includes(shortLabel))
+        || normalized.includes(fullPath);
     })
     .sort((a, b) => compact(b.label).length - compact(a.label).length || b.path.length - a.path.length)[0];
 }
