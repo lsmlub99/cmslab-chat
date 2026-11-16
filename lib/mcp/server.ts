@@ -4,10 +4,13 @@ import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { hasDatabaseConfig } from "@/lib/database";
+import { listTurns } from "@/lib/conversations";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { CHAT_LIMIT, CHAT_WINDOW_SECONDS, rateLimit } from "@/lib/rate-limit";
 import { answerKnowledgeQuestion, type KnowledgeAnswerResult } from "@/lib/rag/answer-service";
+import { HISTORY_TURNS } from "@/lib/rag/conversation-context";
 import { beginMcpCall, finishMcpCall, type SlackIdentity } from "@/lib/mcp/call-log";
+import { mcpConversationIdentity } from "@/lib/mcp/conversation";
 import { errorCodeOf } from "@/lib/rag/ai-error";
 
 const TOOL_NAME = "ask_company_knowledge";
@@ -89,12 +92,20 @@ export function createAnswerbotMcpServer(requestFingerprint: string) {
         return toolError(`질문이 너무 빠릅니다. ${limit.retryAfter}초 후 다시 시도해 주세요.`);
       }
 
+      // Slack MCP는 채널·스레드 식별자를 항상 전달하지 않습니다. 그래서 워크스페이스와
+      // 사용자 ID를 조합한 개인 대화로 묶어, 같은 사람의 후속 질문만 이어받습니다.
+      const { actorId, conversationId } = mcpConversationIdentity(identity);
+      const history = (await listTurns(conversationId, actorId))
+        .filter(turn => !turn.isFallback)
+        .slice(-HISTORY_TURNS)
+        .map(turn => ({ question: turn.question, answer: turn.answer }));
+
       const answer = await answerKnowledgeQuestion({
         question,
-        actor: {
-          id: `slack:${identity.enterpriseId ?? identity.teamId ?? "workspace"}:${identity.userId}`,
-        },
+        actor: { id: actorId },
         interactionSource: "slack_mcp",
+        conversationId,
+        history,
       });
       const payload = toPayload(answer);
       await finishMcpCall({

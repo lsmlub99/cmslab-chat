@@ -1,7 +1,10 @@
 import type { Citation } from "@/lib/types";
 import { chatModel, openai } from "@/lib/openai";
 import { CONTEXT_CHAR_BUDGET, INSUFFICIENT_MARKER } from "@/lib/rag/config";
+import { HISTORY_TURNS, type HistoryTurn } from "@/lib/rag/conversation-context";
 import { redactSensitiveText } from "@/lib/rag/redact";
+
+export { buildSearchQuery, HISTORY_TURNS, type HistoryTurn } from "@/lib/rag/conversation-context";
 
 export function answerInstructions() {
   return `당신은 팀 내부 지식베이스 챗봇입니다.
@@ -54,15 +57,6 @@ export function contextFor(citations: Citation[], chunks: { content: string; met
   return parts.join("\n\n---\n\n");
 }
 
-export type HistoryTurn = { question: string; answer: string };
-
-/**
- * 이어지는 질문("그럼 얼마야?", "그건 어디서 신청해?")을 이해하려면
- * 모델에게 앞선 대화를 함께 줘야 합니다.
- * 토큰이 무한정 늘지 않도록 최근 몇 턴만 넘깁니다.
- */
-export const HISTORY_TURNS = 4;
-
 export async function streamAnswer(
   question: string,
   citations: Citation[],
@@ -89,21 +83,6 @@ export async function streamAnswer(
     max_output_tokens: 600,
     stream: true,
   });
-}
-
-/**
- * 검색에 쓸 질문 문장을 만듭니다.
- *
- * "그럼 얼마야?" 만으로는 임베딩 검색이 아무것도 못 찾습니다.
- * 직전 질문을 앞에 붙여 주제를 복원합니다.
- */
-export function buildSearchQuery(question: string, history: HistoryTurn[]) {
-  const previous = history.at(-1)?.question;
-  if (!previous) return question;
-
-  // 대명사나 아주 짧은 질문일 때만 붙입니다. 주제가 바뀐 질문까지 오염시키지 않으려는 것입니다.
-  const looksDependent = question.length <= 20 || /그럼|그거|그건|그때|거기|위에|아까|더|또/.test(question);
-  return looksDependent ? `${previous} ${question}` : question;
 }
 
 /**
