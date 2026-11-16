@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   formatOrgHeadcountAnswer,
+  isSharedDirectoryAccountName,
   isOrgHeadcountQuestion,
   mergeOrgUnits,
   orgDirectorySyncSchema,
+  summarizeDirectoryMembers,
 } from "./org-directory-model";
 
 const snapshot = {
@@ -44,5 +46,26 @@ describe("org directory model", () => {
       totalActive: 5,
       orgUnits: [{ path: "/대표이사/SCM팀", count: 5 }],
     }).success).toBe(true);
+  });
+
+  it("excludes shared accounts by display name without excluding a real employee", () => {
+    for (const name of ["S C", "Team SCM", "셀퓨전씨글로벌마케팅", "플랫폼대표 계정", "더마블록", "위시켓"]) {
+      expect(isSharedDirectoryAccountName(name)).toBe(true);
+    }
+    expect(isSharedDirectoryAccountName("에블리나")).toBe(false);
+    expect(isSharedDirectoryAccountName("피니(fenny)")).toBe(false);
+
+    expect(summarizeDirectoryMembers([
+      { displayName: "Team SCM", path: "/대표이사/전략기획실/SCM팀" },
+      { displayName: "에블리나", path: "/대표이사/마케팅 Group/GMC" },
+      { displayName: "앤(강예은)", path: "/대표이사/동북아 BU/일본사업팀" },
+    ])).toEqual({
+      totalActive: 2,
+      orgUnits: [
+        { path: "/대표이사/마케팅 Group/GMC", count: 1 },
+        { path: "/대표이사/동북아 BU/일본사업팀", count: 1 },
+      ],
+      excludedAccountCount: 1,
+    });
   });
 });

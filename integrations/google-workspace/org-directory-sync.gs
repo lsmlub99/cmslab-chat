@@ -3,7 +3,6 @@
  * Script Properties에 아래 두 값을 먼저 등록하세요.
  * - RAEBI_SYNC_URL: https://cmslab-chat.vercel.app/api/integrations/google-directory
  * - RAEBI_SYNC_SECRET: Vercel의 GOOGLE_DIRECTORY_SYNC_SECRET와 같은 값
- * - RAEBI_EXCLUDED_EMAILS: 현원에서 제외할 공용계정 이메일(선택, 쉼표 또는 줄바꿈 구분)
  */
 function updateWorkspaceUsersToSheet() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
@@ -51,21 +50,16 @@ function syncHeadcountToRaebi_(userRows, now) {
   const properties = PropertiesService.getScriptProperties();
   const url = properties.getProperty('RAEBI_SYNC_URL');
   const secret = properties.getProperty('RAEBI_SYNC_SECRET');
-  const excludedEmails = new Set(
-    String(properties.getProperty('RAEBI_EXCLUDED_EMAILS') || '')
-      .split(/[,\n;]/)
-      .map(email => email.trim().toLowerCase())
-      .filter(Boolean)
-  );
   if (!url || !secret) throw new Error('RAEBI_SYNC_URL과 RAEBI_SYNC_SECRET을 Script Properties에 등록해 주세요.');
 
   const counts = {};
+  const members = [];
   let totalActive = 0;
   for (const row of userRows) {
     if (row[3] !== '활성') continue;
-    if (excludedEmails.has(String(row[1] || '').trim().toLowerCase())) continue;
     const path = String(row[2] || '/미분류').trim();
     counts[path] = (counts[path] || 0) + 1;
+    members.push({ displayName: String(row[0] || '').trim(), path });
     totalActive += 1;
   }
 
@@ -73,7 +67,9 @@ function syncHeadcountToRaebi_(userRows, now) {
     snapshotMonth: Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-01'),
     snapshotAt: now.toISOString(),
     totalActive,
-    orgUnits: Object.keys(counts).sort().map(path => ({ path, count: counts[path] }))
+    orgUnits: Object.keys(counts).sort().map(path => ({ path, count: counts[path] })),
+    // 이메일은 보내지 않고 이름은 서버에서 공용계정을 판별한 뒤 즉시 폐기합니다.
+    members
   };
   const response = UrlFetchApp.fetch(url, {
     method: 'post',

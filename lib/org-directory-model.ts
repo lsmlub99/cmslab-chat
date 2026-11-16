@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export type OrgUnitCount = { path: string; count: number };
+export type OrgDirectoryMember = { displayName: string; path: string };
 export type OrgDirectorySnapshot = {
   snapshotAt: string;
   totalActive: number;
@@ -15,7 +16,48 @@ export const orgDirectorySyncSchema = z.object({
     path: z.string().trim().min(1).max(500),
     count: z.number().int().min(0).max(100_000),
   })).max(1_000),
+  members: z.array(z.object({
+    displayName: z.string().trim().min(1).max(200),
+    path: z.string().trim().min(1).max(500),
+  })).max(5_000).optional(),
 });
+
+const SHARED_ACCOUNT_NAMES = new Set([
+  "sc",
+  "teamscm",
+  "셀퓨전씨글로벌마케팅",
+  "플랫폼대표계정",
+  "셀퓨전씨마케팅",
+  "전략분석",
+  "더마블록",
+  "위시켓",
+]);
+
+export function isSharedDirectoryAccountName(displayName: string) {
+  const normalized = displayName.toLocaleLowerCase("ko-KR").replace(/[\s_-]+/g, "");
+  return SHARED_ACCOUNT_NAMES.has(normalized)
+    || /(?:공용계정|공통계정|대표계정|sharedaccount|serviceaccount)/iu.test(normalized)
+    || /^team[a-z0-9가-힣]+$/iu.test(normalized);
+}
+
+export function summarizeDirectoryMembers(members: OrgDirectoryMember[]) {
+  const counts = new Map<string, number>();
+  let excludedAccountCount = 0;
+  for (const member of members) {
+    if (isSharedDirectoryAccountName(member.displayName)) {
+      excludedAccountCount += 1;
+      continue;
+    }
+    const path = normalizePath(member.path);
+    counts.set(path, (counts.get(path) ?? 0) + 1);
+  }
+  const orgUnits = [...counts.entries()].map(([path, count]) => ({ path, count }));
+  return {
+    totalActive: orgUnits.reduce((total, item) => total + item.count, 0),
+    orgUnits,
+    excludedAccountCount,
+  };
+}
 
 export function mergeOrgUnits(rows: OrgUnitCount[]) {
   const merged = new Map<string, number>();

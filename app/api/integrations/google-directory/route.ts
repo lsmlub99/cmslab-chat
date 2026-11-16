@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { database, hasDatabaseConfig } from "@/lib/database";
-import { mergeOrgUnits, orgDirectorySyncSchema } from "@/lib/org-directory-model";
+import { mergeOrgUnits, orgDirectorySyncSchema, summarizeDirectoryMembers } from "@/lib/org-directory-model";
 import { logUserAction } from "@/lib/server/telemetry.server";
 
 export const runtime = "nodejs";
@@ -31,9 +31,12 @@ export async function POST(request: Request) {
 
     const parsed = orgDirectorySyncSchema.safeParse(JSON.parse(raw));
     if (!parsed.success) return Response.json({ error: "조직도 집계 형식이 올바르지 않습니다." }, { status: 400 });
-    const orgUnits = mergeOrgUnits(parsed.data.orgUnits);
+    const summary = parsed.data.members
+      ? summarizeDirectoryMembers(parsed.data.members)
+      : { totalActive: parsed.data.totalActive, orgUnits: parsed.data.orgUnits, excludedAccountCount: 0 };
+    const orgUnits = mergeOrgUnits(summary.orgUnits);
     const summed = orgUnits.reduce((total, item) => total + item.count, 0);
-    if (summed !== parsed.data.totalActive) {
+    if (summed !== summary.totalActive) {
       return Response.json({ error: "부서별 인원 합계와 전체 인원이 다릅니다." }, { status: 400 });
     }
 
@@ -43,7 +46,7 @@ export async function POST(request: Request) {
         insert into public.org_directory_snapshots
           (snapshot_month, snapshot_at, total_active, org_unit_count)
         values
-          (${parsed.data.snapshotMonth}, ${parsed.data.snapshotAt}, ${parsed.data.totalActive}, ${orgUnits.length})
+          (${parsed.data.snapshotMonth}, ${parsed.data.snapshotAt}, ${summary.totalActive}, ${orgUnits.length})
         on conflict (snapshot_month) do update
           set snapshot_at = excluded.snapshot_at,
               total_active = excluded.total_active,
@@ -72,8 +75,9 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       snapshotMonth: parsed.data.snapshotMonth,
-      totalActive: parsed.data.totalActive,
+      totalActive: summary.totalActive,
       orgUnitCount: orgUnits.length,
+      excludedAccountCount: summary.excludedAccountCount,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof SyntaxError) return Response.json({ error: "JSON 요청이 필요합니다." }, { status: 400 });
